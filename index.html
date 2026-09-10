@@ -615,22 +615,63 @@ const roots = k => grupos().map(g => ROOT[g][k]).filter(id => NODE[id]);
 const grpNome = () => S.grp === 'AMBOS' ? 'Bravante + Marlin' : GRUPOS[S.grp];
 
 /* ============================ armazenamento ============================ */
+/* >>> COLE SUA CHAVE NA LINHA ABAIXO (Publishable key / anon public) <<< */
+const SUPABASE_URL = 'https://xwfzcmzxmtyqwmmmrztt.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_lIkOZxVajcKpfgm15PZGmA_jhJaCpyJ';
+
 const Store = (() => {
   const mem = {};
+  const sbOk = typeof window !== 'undefined' && window.supabase
+            && SUPABASE_KEY && SUPABASE_KEY.indexOf('COLE_') !== 0;
+  const db = sbOk ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+
   const has = typeof window !== 'undefined' && window.storage && window.storage.get;
-  let mode = has ? 'nuvem' : 'memória';
-  if (!has){ try { localStorage.setItem('_t','1'); localStorage.removeItem('_t'); mode = 'navegador'; } catch(e){} }
+  let mode = sbOk ? 'supabase' : (has ? 'nuvem' : 'memória');
+  if (mode === 'memória'){ try { localStorage.setItem('_t','1'); localStorage.removeItem('_t'); mode = 'navegador'; } catch(e){} }
+  if (!sbOk) console.warn('[Supabase] desativado — chave não preenchida ou biblioteca não carregou. Modo:', mode);
+
+  let blob = null, loading = null, timer = null;
+
+  function load(){
+    if (blob) return Promise.resolve(blob);
+    if (!loading) loading = (async () => {
+      const { data, error } = await db.from('dashboard_eco')
+        .select('dados').eq('nome', 'Principal').maybeSingle();
+      if (error) console.error('[Supabase] erro ao carregar:', error.message);
+      else if (!data) console.warn('[Supabase] linha "Principal" não encontrada na tabela dashboard_eco');
+      blob = (data && data.dados && typeof data.dados === 'object' && !Array.isArray(data.dados)) ? data.dados : {};
+      console.log('[Supabase] dados carregados');
+      return blob;
+    })();
+    return loading;
+  }
+
+  async function flush(){
+    const { data, error } = await db.from('dashboard_eco')
+      .update({ dados: blob, updated_at: new Date().toISOString() })
+      .eq('nome', 'Principal').select('nome');
+    if (error) return console.error('[Supabase] ERRO ao salvar:', error.message);
+    if (!data || !data.length) return console.error('[Supabase] nada foi gravado — confira se existe a linha "Principal" e se a policy de UPDATE está ativa');
+    console.log('[Supabase] salvo às', new Date().toLocaleTimeString('pt-BR'));
+  }
+
   return {
     mode: () => mode,
     async get(k){
       try {
+        if (mode === 'supabase'){ const b = await load(); return b[k] !== undefined ? b[k] : null; }
         if (mode === 'nuvem'){ const r = await window.storage.get(k); return r ? JSON.parse(r.value) : null; }
         if (mode === 'navegador'){ const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; }
-      } catch(e){}
+      } catch(e){ console.error('[Store] falha ao ler', k, e); }
       return mem[k] !== undefined ? mem[k] : null;
     },
     async set(k, v){
       mem[k] = v;
+      if (mode === 'supabase'){
+        const b = await load(); b[k] = v;
+        clearTimeout(timer); timer = setTimeout(flush, 1200);
+        return;
+      }
       if (mode === 'nuvem') return void await window.storage.set(k, JSON.stringify(v));
       if (mode === 'navegador') return void localStorage.setItem(k, JSON.stringify(v));
     }
@@ -1839,7 +1880,7 @@ $('dataClose').onclick = closeDrawers;
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawers(); });
 
 function renderDataPanel(){
-  const modo = { nuvem:'sincronizado com sua conta', navegador:'salvo neste navegador', 'memória':'apenas nesta sessão' }[Store.mode()];
+  const modo = { supabase:'sincronizado com o Supabase', nuvem:'sincronizado com sua conta', navegador:'salvo neste navegador', 'memória':'apenas nesta sessão' }[Store.mode()];
   const vs = [...S.versoes].reverse().slice(0, 12);
   $('dataBody').innerHTML = `
     <p style="margin-top:0"><b>Base carregada</b><br><span class="mut">${esc(D.meta.fonte)}</span></p>
