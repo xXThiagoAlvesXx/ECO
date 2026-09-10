@@ -50,6 +50,14 @@ header.top{background:#fff;border-bottom:1px solid var(--line);position:sticky;t
 .top-sp{flex:1}
 .stamp{text-align:right;font-size:12px;color:var(--ink2);line-height:1.35}
 .stamp b{font-family:var(--num);font-size:15px;color:var(--ink)}
+.sync{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;color:var(--ink2);
+  border:1px solid var(--line);border-radius:3px;padding:4px 8px;background:#fff;white-space:nowrap}
+.sync i{width:7px;height:7px;border-radius:50%;background:var(--ink3);flex:none}
+.sync.ok i{background:var(--pos)}
+.sync.salvando i{background:var(--warn);animation:pulse 1s ease-in-out infinite}
+.sync.erro{border-color:#E7C6C6;background:#FDF4F4;color:var(--red)}
+.sync.erro i{background:var(--red)}
+@keyframes pulse{50%{opacity:.3}}
 .tbtn{background:#fff;border:1px solid var(--line-str);border-radius:3px;padding:7px 12px;font-size:13px;font-weight:500}
 .tbtn:hover{border-color:var(--green);color:var(--green)}
 .tbtn.on{background:var(--green);border-color:var(--green);color:#fff}
@@ -208,10 +216,8 @@ tr.tot td{font-weight:600;background:#F7F9F8;border-top:1px solid var(--line-str
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
-
 <!-- Supabase -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
 </head>
 <body>
 <header class="top">
@@ -224,6 +230,7 @@ tr.tot td{font-weight:600;background:#F7F9F8;border-top:1px solid var(--line-str
       <small>Visão consolidada do ecossistema · valores em R$ mil</small></div>
     <div class="top-sp"></div>
     <div class="stamp">Posição em <b id="stAsOf">–</b><br><span id="stReal" class="mut"></span></div>
+    <span class="sync" id="sbSync" title="Estado da sincronização"><i></i><span>—</span></span>
     <button class="tbtn" id="btnObs">Observações <span id="obsCount" class="mut"></span></button>
     <button class="tbtn" id="btnData">Dados</button>
   </div>
@@ -571,7 +578,7 @@ let D = {"meta":{"fonte":"Fluxo de Caixa - Ecossistema (BVT) + Ecossistema_Mar (
 const NODEDEF = D.nodes;
 
 /* ============================ base de dados ============================ */
-let N, NODE, KIDS, SER, LEAVES, DIDX, TODAY, LASTR, MARI;
+let N, NODE, KIDS, SER, LEAVES, DIDX, TODAY, LASTR, MARI, HOJE, DEFASAGEM;
 let WEEKS, WOF, MONTHS, MOF, TI, LRI;
 const GRUPOS = { BVT: 'Bravante', MAR: 'Marlin' };
 const isLeaf = id => !KIDS[id];
@@ -588,7 +595,10 @@ function initData(nd){
   D.nodes.forEach(n => { NODE[n.id] = n; (KIDS[n.parent || '_'] = KIDS[n.parent || '_'] || []).push(n.id); });
   LEAVES = D.nodes.filter(n => isLeaf(n.id)).map(n => n.id);
   DIDX = {}; D.dates.forEach((d, i) => DIDX[d] = i);
-  TODAY = D.meta.dataBase; LASTR = D.meta.ultimoRealizado;
+  LASTR = D.meta.ultimoRealizado;
+  /* "hoje" é a data real do relógio, não a data-base da planilha */
+  const ag = new Date();
+  HOJE = new Date(ag.getTime() - ag.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   MARI = D.dates.findIndex(d => d >= (D.meta.marlinInicio || D.dates[0]));
   if (MARI < 0) MARI = 0;
   WEEKS = []; WOF = new Array(N); MONTHS = []; MOF = new Array(N);
@@ -603,9 +613,14 @@ function initData(nd){
     if (!cm || cm.key !== mk){ cm = { key: mk, idx: [], i: MONTHS.length }; MONTHS.push(cm); }
     cm.idx.push(i); MOF[i] = cm.i;
   });
-  TI = DIDX[TODAY];
-  if (TI === undefined){ TI = 0; for (let i=0;i<N;i++) if (D.dates[i] <= TODAY) TI = i; }
+  /* ancora no dia útil de hoje, ou no anterior mais próximo */
+  TI = -1; for (let i=0;i<N;i++) if (D.dates[i] <= HOJE) TI = i;
+  if (TI < 0) TI = 0;
+  TODAY = D.dates[TI];
   LRI = 0; for (let i=0;i<N;i++) if (D.dates[i] <= LASTR) LRI = i;
+  /* quantos dias úteis a planilha está atrás de hoje */
+  DEFASAGEM = 0;
+  for (let i = 0; i < N; i++) if (D.dates[i] > LASTR && D.dates[i] <= HOJE) DEFASAGEM++;
 }
 initData(D);
 
@@ -615,51 +630,81 @@ const roots = k => grupos().map(g => ROOT[g][k]).filter(id => NODE[id]);
 const grpNome = () => S.grp === 'AMBOS' ? 'Bravante + Marlin' : GRUPOS[S.grp];
 
 /* ============================ armazenamento ============================ */
-/* >>> COLE SUA CHAVE NA LINHA ABAIXO (Publishable key / anon public) <<< */
-const SUPABASE_URL = 'https://xwfzcmzxmtyqwmmmrztt.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_lIkOZxVajcKpfgm15PZGmA_jhJaCpyJ';
+/* Chave publicável (anon). É pública por natureza: a proteção real é a RLS da tabela. */
+const SUPABASE_URL  = 'https://xwfzcmzxmtyqwmmmrztt.supabase.co';
+const SUPABASE_KEY  = 'sb_publishable_lIkOZxVajcKpfgm15PZGmA_jhJaCpyJ';
+const SB_TABELA     = 'dashboard_eco';
+const SB_LINHA      = 'Principal';   // lançamentos, observações, preferências, histórico
+const SB_LINHA_BASE = 'Base';        // planilha importada — pesada, gravada à parte
 
 const Store = (() => {
   const mem = {};
-  const sbOk = typeof window !== 'undefined' && window.supabase
-            && SUPABASE_KEY && SUPABASE_KEY.indexOf('COLE_') !== 0;
+  const sbOk = typeof window !== 'undefined' && window.supabase && SUPABASE_KEY
+            && SUPABASE_KEY.indexOf('COLE_') !== 0;
   const db = sbOk ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
-
   const has = typeof window !== 'undefined' && window.storage && window.storage.get;
   let mode = sbOk ? 'supabase' : (has ? 'nuvem' : 'memória');
   if (mode === 'memória'){ try { localStorage.setItem('_t','1'); localStorage.removeItem('_t'); mode = 'navegador'; } catch(e){} }
-  if (!sbOk) console.warn('[Supabase] desativado — chave não preenchida ou biblioteca não carregou. Modo:', mode);
 
-  let blob = null, loading = null, timer = null;
+  /* a base vive numa linha só dela: assim salvar um lançamento não reenvia 300 KB */
+  const CHAVES_BASE = new Set(['fdc_data']);
+  const linhaDe = k => CHAVES_BASE.has(k) ? SB_LINHA_BASE : SB_LINHA;
 
-  function load(){
-    if (blob) return Promise.resolve(blob);
-    if (!loading) loading = (async () => {
-      const { data, error } = await db.from('dashboard_eco')
-        .select('dados').eq('nome', 'Principal').maybeSingle();
-      if (error) console.error('[Supabase] erro ao carregar:', error.message);
-      else if (!data) console.warn('[Supabase] linha "Principal" não encontrada na tabela dashboard_eco');
-      blob = (data && data.dados && typeof data.dados === 'object' && !Array.isArray(data.dados)) ? data.dados : {};
-      console.log('[Supabase] dados carregados');
-      return blob;
-    })();
-    return loading;
+  const cache = {}, pend = {}, espera = {};
+  let estado = { st: sbOk ? 'ok' : 'local', quando: null, msg: '' };
+  const ouvintes = [];
+  function sinal(st, msg){
+    estado = { st, quando: (st === 'ok' ? new Date() : estado.quando), msg: msg || '' };
+    ouvintes.forEach(f => { try { f(estado); } catch(e){} });
   }
 
-  async function flush(){
-    const { data, error } = await db.from('dashboard_eco')
-      .update({ dados: blob, updated_at: new Date().toISOString() })
-      .eq('nome', 'Principal').select('nome');
-    if (error) return console.error('[Supabase] ERRO ao salvar:', error.message);
-    if (!data || !data.length) return console.error('[Supabase] nada foi gravado — confira se existe a linha "Principal" e se a policy de UPDATE está ativa');
-    console.log('[Supabase] salvo às', new Date().toLocaleTimeString('pt-BR'));
+  async function load(linha){
+    if (cache[linha]) return cache[linha];
+    if (!espera[linha]) espera[linha] = (async () => {
+      const { data, error } = await db.from(SB_TABELA).select('dados').eq('nome', linha).maybeSingle();
+      if (error){ sinal('erro', 'falha ao ler o banco: ' + error.message); return cache[linha] = {}; }
+      cache[linha] = (data && data.dados && typeof data.dados === 'object' && !Array.isArray(data.dados)) ? data.dados : {};
+      return cache[linha];
+    })();
+    const r = await espera[linha]; delete espera[linha]; return r;
+  }
+
+  async function flush(linha){
+    if (!cache[linha]) return true;
+    sinal('salvando');
+    const corpo = { dados: cache[linha], updated_at: new Date().toISOString() };
+    let { data, error } = await db.from(SB_TABELA).update(corpo).eq('nome', linha).select('nome');
+    if (!error && (!data || !data.length)){
+      const r = await db.from(SB_TABELA).insert(Object.assign({ nome: linha }, corpo)).select('nome');
+      data = r.data; error = r.error;
+    }
+    if (error || !data || !data.length){
+      sinal('erro', error ? error.message
+        : `a linha "${linha}" não existe na tabela ${SB_TABELA} e não pôde ser criada — confira as policies de UPDATE e INSERT`);
+      return false;
+    }
+    sinal('ok'); return true;
   }
 
   return {
     mode: () => mode,
+    estado: () => estado,
+    aoMudar(f){ ouvintes.push(f); f(estado); },
+    /* descarta o cache para reler o que outra pessoa gravou */
+    async recarregar(){ Object.keys(cache).forEach(k => delete cache[k]); sinal('ok'); },
+    /* grava agora, sem esperar o debounce, e diz se deu certo */
+    async gravarAgora(){
+      if (mode !== 'supabase') return true;
+      const linhas = Object.keys(pend);
+      linhas.forEach(l => clearTimeout(pend[l]));
+      Object.keys(pend).forEach(l => delete pend[l]);
+      const alvos = linhas.length ? linhas : Object.keys(cache);
+      const r = await Promise.all(alvos.map(flush));
+      return r.every(Boolean);
+    },
     async get(k){
       try {
-        if (mode === 'supabase'){ const b = await load(); return b[k] !== undefined ? b[k] : null; }
+        if (mode === 'supabase'){ const b = await load(linhaDe(k)); return b[k] !== undefined ? b[k] : null; }
         if (mode === 'nuvem'){ const r = await window.storage.get(k); return r ? JSON.parse(r.value) : null; }
         if (mode === 'navegador'){ const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; }
       } catch(e){ console.error('[Store] falha ao ler', k, e); }
@@ -668,8 +713,10 @@ const Store = (() => {
     async set(k, v){
       mem[k] = v;
       if (mode === 'supabase'){
-        const b = await load(); b[k] = v;
-        clearTimeout(timer); timer = setTimeout(flush, 1200);
+        const linha = linhaDe(k);
+        const b = await load(linha); b[k] = v;
+        clearTimeout(pend[linha]);
+        pend[linha] = setTimeout(() => { delete pend[linha]; flush(linha); }, CHAVES_BASE.has(k) ? 300 : 1200);
         return;
       }
       if (mode === 'nuvem') return void await window.storage.set(k, JSON.stringify(v));
@@ -1513,12 +1560,24 @@ async function importarPlanilhas(fB, fM, msgEl){
     S.versoes.push({ ts: new Date().toISOString(), tipo: 'base', dataBase: nd.meta.dataBase,
       lanc: S.entries.length, obs: S.notes.length });
     let aviso = '';
-    try { await Store.set('fdc_data', nd); }
-    catch(e){ aviso = ' A base não coube no armazenamento local, então será preciso reenviar os arquivos na próxima abertura.'; }
-    save(); render(); renderDataPanel();
-    log(`Pronto. Posição de ${dBRfull(nd.meta.dataBase)}, ${nd.dates.length} dias úteis. Seus ${S.entries.length} lançamento(s) e ${S.notes.length} observação(ões) foram preservados.` + aviso);
+    try {
+      await Store.set('fdc_data', nd);
+      log('Base lida. Gravando no banco…');
+      const ok = await Store.gravarAgora();
+      if (!ok) aviso = ' Atenção: a base foi carregada aqui, mas NÃO foi gravada no banco — veja o erro no painel Dados. Quem abrir o link continuará vendo a versão anterior.';
+      else if (Store.mode() === 'supabase') aviso = ' A nova base já está no banco: quem abrir o link vê esta versão.';
+    } catch(e){ aviso = ' A base não pôde ser gravada: ' + e.message; }
+    save(); render();
+    const fim = `Pronto. Base de ${dBRfull(nd.meta.dataBase)}, realizado até ${dBRfull(nd.meta.ultimoRealizado)}, ${nd.dates.length} dias úteis. Seus ${S.entries.length} lançamento(s) e ${S.notes.length} observação(ões) foram preservados.` + aviso;
+    try { renderDataPanel(); } catch(e){}
+    /* o painel é remontado acima, então a mensagem vai no elemento novo */
+    const el = document.getElementById('xlMsg');
+    if (el){ el.textContent = fim; el.style.color = aviso.includes('NÃO') ? 'var(--red)' : 'var(--pos)'; }
+    else log(fim);
   } catch(e){
+    console.error('[Importação]', e);
     log('Não deu certo: ' + e.message);
+    const el = document.getElementById('xlMsg'); if (el) el.style.color = 'var(--red)';
   }
 }
 </script>
@@ -1671,8 +1730,10 @@ function go2(p){ S.page = p; document.querySelectorAll('nav.tabs button').forEac
 function render(){
   aplicarTema();
   recompute(); buildMatch();
-  $('stAsOf').textContent = dBRfull(TODAY);
-  $('stReal').textContent = `realizado até ${dBRfull(LASTR)} · projetado a partir daí`;
+  $('stAsOf').textContent = dBRfull(HOJE);
+  const atraso = DEFASAGEM > 0
+    ? ` · <b style="color:var(--red)">base ${DEFASAGEM} dia${DEFASAGEM>1?'s':''} atrás</b>` : '';
+  $('stReal').innerHTML = `base EKO de ${dBRfull(D.meta.dataBase)} · realizado até ${dBRfull(LASTR)}${atraso}`;
   $('navFlag').textContent = `${D.dates.length} dias úteis · ${dBR(D.dates[0])}/${D.dates[0].slice(2,4)} a ${dBR(D.dates[N-1])}/${D.dates[N-1].slice(2,4)}`;
   $('chkEkoL').classList.toggle('off', !S.useEko);
   $('chkManL').classList.toggle('off', !S.useMan);
@@ -1685,6 +1746,34 @@ function render(){
   else if (S.page === 'lanc') renderLanc();
   else if (S.page === 'sim') renderSim();
 }
+function pintarSync(e){
+  const el = $('sbSync'); if (!el) return;
+  const txt = { ok: 'Sincronizado', salvando: 'Salvando…', erro: 'Erro ao salvar', local: 'Só neste navegador' }[e.st] || '—';
+  const hora = e.quando ? ' · ' + e.quando.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '';
+  el.className = 'sync ' + e.st;
+  el.querySelector('span').textContent = txt + (e.st === 'ok' ? hora : '');
+  el.title = e.msg || (Store.mode() === 'supabase' ? 'Dados no Supabase, compartilhados com o time' : 'Dados apenas neste navegador');
+}
+async function recarregarDoBanco(){
+  if (Store.mode() !== 'supabase') return;
+  await Store.recarregar();
+  const [en, no, vv, nb] = await Promise.all([
+    Store.get('fdc_entries'), Store.get('fdc_notes'), Store.get('fdc_versoes'), Store.get('fdc_data')]);
+  if (Array.isArray(en)) S.entries = en;
+  if (Array.isArray(no)) S.notes = no;
+  if (Array.isArray(vv)) S.versoes = vv;
+  if (nb && nb.dates && nb.nodes && nb.meta && nb.meta.gerado !== D.meta.gerado){
+    initData(nb);
+    S.w = WOF[TI]; S.d = TI; S.m = MOF[TI]; S.simA = null; S.simB = null;
+    $('mSel').innerHTML = MONTHS.map(m => `<option value="${m.key}">${mBR(m.key)}</option>`).join('');
+  }
+  render();
+}
+let ultimaRecarga = Date.now();
+window.addEventListener('focus', () => {
+  if (Date.now() - ultimaRecarga < 30000) return;
+  ultimaRecarga = Date.now(); recarregarDoBanco();
+});
 function openDrawer(id){ $(id).classList.add('on'); $('scrim').classList.add('on'); }
 function closeDrawers(){ document.querySelectorAll('.drawer').forEach(d => d.classList.remove('on')); $('scrim').classList.remove('on'); }
 
@@ -1875,12 +1964,30 @@ $('oSave').onclick = () => {
   else S.notes.push({ id: uid(), dt, txt, ts: Date.now() });
   $('oTxt').value = ''; save(); render();
 };
-$('btnData').onclick = () => { renderDataPanel(); openDrawer('ddrawer'); };
+$('btnData').onclick = () => {
+  openDrawer('ddrawer');
+  try { renderDataPanel(); }
+  catch(e){
+    $('dataBody').innerHTML = `<p style="color:var(--red)"><b>O painel falhou ao montar.</b></p>
+      <p class="mut">${esc(e.message)}</p>
+      <p class="hint">A base carregada pode estar inconsistente. Use o botão abaixo para voltar à base original embutida e tentar de novo.</p>
+      <div class="fld" style="margin-top:10px"><label for="xlBvt">Planilha Bravante (.xlsx)</label><input type="file" id="xlBvt" accept=".xlsx,.xlsm"></div>
+      <div class="fld" style="margin-top:8px"><label for="xlMar">Planilha Marlin (.xlsx)</label><input type="file" id="xlMar" accept=".xlsx,.xlsm"></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn sm" id="xlGo">Atualizar dados</button>
+        <button class="btn dgr sm" id="dpReset">Voltar à base original</button></div>
+      <div class="hint" id="xlMsg"></div>`;
+    $('xlGo').onclick = () => importarPlanilhas($('xlBvt').files[0], $('xlMar').files[0], $('xlMsg'));
+    $('dpReset').onclick = async () => { await Store.set('fdc_data', null); location.reload(); };
+  }
+};
 $('dataClose').onclick = closeDrawers;
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawers(); });
 
 function renderDataPanel(){
-  const modo = { supabase:'sincronizado com o Supabase', nuvem:'sincronizado com sua conta', navegador:'salvo neste navegador', 'memória':'apenas nesta sessão' }[Store.mode()];
+  const modo = { supabase:'gravado no Supabase e compartilhado com o time', nuvem:'sincronizado com sua conta',
+                 navegador:'salvo apenas neste navegador', 'memória':'apenas nesta sessão' }[Store.mode()];
+  const est = Store.estado();
   const vs = [...S.versoes].reverse().slice(0, 12);
   $('dataBody').innerHTML = `
     <p style="margin-top:0"><b>Base carregada</b><br><span class="mut">${esc(D.meta.fonte)}</span></p>
@@ -1889,12 +1996,15 @@ function renderDataPanel(){
       ? ` (Bravante ${dBRfull(D.meta.ultimoRealizadoBVT)}, Marlin ${dBRfull(D.meta.ultimoRealizadoMAR)})` : ''
     } · projeção até ${dBRfull(D.dates[N-1])}</span></p>
     <p><b>Cobertura</b><br><span class="mut">${N} dias úteis · ${D.nodes.length} linhas · ${LEAVES.length} itens de detalhe · valores em R$ mil.</span></p>
+    ${DEFASAGEM > 0 ? `<p style="color:var(--red)"><b>Base desatualizada.</b><br><span class="mut">Hoje é ${dBRfull(HOJE)} e o realizado vai só até ${dBRfull(LASTR)} — ${DEFASAGEM} dia(s) útil(eis) de diferença. Atualize a planilha abaixo.</span></p>` : ''}
 
     <div class="block" style="margin:14px 0"><h3>Atualizar base</h3><div class="bd">
       <p class="hint" style="margin-top:0">Salve as planilhas na rede, depois selecione os arquivos aqui. A leitura acontece no seu computador; nada é enviado para fora.</p>
       <div class="fld"><label for="xlBvt">Planilha Bravante (.xlsx)</label><input type="file" id="xlBvt" accept=".xlsx,.xlsm"></div>
       <div class="fld" style="margin-top:8px"><label for="xlMar">Planilha Marlin (.xlsx) — opcional</label><input type="file" id="xlMar" accept=".xlsx,.xlsm"></div>
-      <div class="row" style="margin-top:10px"><button class="btn sm" id="xlGo">Atualizar dados</button></div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn sm" id="xlGo">Atualizar dados</button>
+        <button class="btn sec sm" id="dpReset">Voltar à base original</button></div>
       <div class="hint" id="xlMsg"></div>
     </div></div>
 
@@ -1907,13 +2017,18 @@ function renderDataPanel(){
       </div>
     </div></div>
 
-    <p><b>Seus dados</b><br><span class="mut">${S.entries.length} lançamento(s), ${S.notes.length} observação(ões) — ${modo}. Eles ficam guardados fora da base e <b>sobrevivem</b> à troca da planilha.</span></p>
+    <p><b>Seus dados</b><br><span class="mut">${S.entries.length} lançamento(s), ${S.notes.length} observação(ões) — ${modo}. Ficam guardados fora da base e <b>sobrevivem</b> à troca da planilha.</span></p>
+    ${Store.mode() === 'supabase' ? `<div class="row" style="margin:-4px 0 12px">
+      <button class="btn sec sm" id="dpSync">Recarregar do banco</button>
+      <span class="hint">${est.st === 'erro' ? '⚠ ' + esc(est.msg) : est.quando ? 'última gravação às ' + est.quando.toLocaleTimeString('pt-BR') : 'nada gravado ainda nesta sessão'}</span>
+    </div>` : `<p class="hint" style="margin-top:-6px">O Supabase não carregou, então os dados estão só neste navegador. Verifique a conexão e recarregue a página.</p>`}
     <p><b>Histórico</b></p>
     ${vs.length ? vs.map(v => `<div class="note" style="border-color:var(--green);background:#F4F8F6">
         <div class="h"><b>${new Date(v.ts).toLocaleString('pt-BR')}</b><span>${v.tipo === 'export' ? 'exportação' : 'base atualizada'}</span></div>
         <p>Posição ${dBRfull(v.dataBase)} · ${v.lanc ?? 0} lançamento(s), ${v.obs ?? 0} observação(ões)</p></div>`).join('')
       : '<div class="empty">Nenhuma atualização ou exportação registrada ainda.</div>'}
     <div class="row" style="margin-top:12px"><button class="btn dgr sm" id="dpWipe">Apagar meus lançamentos</button></div>`;
+  if ($('dpSync')) $('dpSync').onclick = async () => { await recarregarDoBanco(); renderDataPanel(); };
   $('dpHtml').onclick = () => { exportarHTML(); renderDataPanel(); };
   $('dpSnap').onclick = () => { exportarSnapshot(); renderDataPanel(); };
   $('dpCsv').onclick = exportarCSV;
@@ -1921,6 +2036,12 @@ function renderDataPanel(){
     const fb = $('xlBvt').files[0], fm = $('xlMar').files[0];
     if (!fb && !fm){ $('xlMsg').textContent = 'Selecione ao menos a planilha da Bravante.'; return; }
     importarPlanilhas(fb, fm, $('xlMsg'));
+  };
+  $('dpReset').onclick = async () => {
+    if (!confirm('Descartar a planilha importada e voltar à base embutida no arquivo?')) return;
+    await Store.set('fdc_data', null);
+    if (Store.mode() === 'supabase') await Store.gravarAgora();
+    location.reload();
   };
   $('dpWipe').onclick = () => { if (!confirm('Apagar todos os lançamentos e observações que você incluiu?')) return;
     S.entries = []; S.notes = []; save(); render(); renderDataPanel(); };
@@ -2126,6 +2247,7 @@ Versão congelada em ${new Date().toLocaleString('pt-BR')}.
   $('lData').value = TODAY; $('sData').value = TODAY; $('oData').value = TODAY;
   $('fLim').value = S.lim; $('chkSim').checked = S.useSim; $('chkMan').checked = S.useMan; $('chkEko').checked = S.useEko;
   syncLancCats();
+  Store.aoMudar(pintarSync);
   render();
 })();
 </script>
