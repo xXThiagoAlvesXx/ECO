@@ -451,8 +451,8 @@ tr.tot td{font-weight:600;background:#F7F9F8;border-top:1px solid var(--line-str
             <select id="lTipo"><option value="S">Saída</option><option value="E">Entrada</option></select></div>
           <div class="fld"><label for="lCat">Categoria</label><select id="lCat"></select></div>
           <div class="fld"><label for="lSub">Subcategoria</label><select id="lSub"></select></div>
-          <div class="fld"><label for="lSeg">Segmento / embarcação</label><input id="lSeg" list="segList" placeholder="opcional"></div>
-          <div class="fld"><label for="lValor">Valor (R$ mil)</label><input type="number" id="lValor" step="0.01" placeholder="130"></div>
+          <div class="fld"><label for="lNo">Linha do EKO (segmento / embarcação)</label><select id="lNo"></select></div>
+          <div class="fld"><label for="lValor">Valor (R$ mil) — use negativo para estornar</label><input type="number" id="lValor" step="0.01" placeholder="130 ou -1361"></div>
           <div class="fld"><label for="lCen">Cenário</label><input id="lCen" placeholder="Base" value="Base"></div>
           <div class="fld fw"><label for="lDesc">Descrição</label><input id="lDesc" placeholder="Ex.: Pagamento extraordinário fornecedor X"></div>
           <div class="fld fw"><label for="lObs">Observação</label><input id="lObs" placeholder="opcional"></div>
@@ -463,7 +463,8 @@ tr.tot td{font-weight:600;background:#F7F9F8;border-top:1px solid var(--line-str
           <button class="btn sec" id="lClear">Limpar campos</button>
           <span class="hint" id="lMsg"></span>
         </div>
-        <p class="hint">Valores em R$ mil, sempre positivos: o tipo define se soma ou subtrai do caixa. Ex.: um pagamento de R$ 130.000 é uma saída de 130.</p>
+        <p class="hint" id="lDestino"></p>
+        <p class="hint">Valores em R$ mil. Um pagamento de R$ 130.000 é uma saída de <b>130</b>. Para anular uma receita de R$ 1.361.000 já prevista no EKO, escolha Receitas → o segmento → a embarcação e lance <b>−1361</b>: o valor sai da própria linha da receita.</p>
       </div>
     </div>
 
@@ -752,7 +753,7 @@ function mBR(k){ return MES[+k.slice(5,7) - 1] + '/' + k.slice(2,4); }
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 
 /* ============================ cálculo do fluxo ============================ */
-let F = null;
+let F = null, ADJ = {};
 function chainGroup(g, opts){
   const o = opts || {};
   const ent = new Float64Array(N), sai = new Float64Array(N);
@@ -793,6 +794,18 @@ function recompute(){
   for (let i = 0; i < N; i++) livre[i] = fim[i] - tra[i];
   const bFim = new Float64Array(N);
   gs.forEach(g => { const p = chainGroup(g, { man: false, sim: false }); for (let i=0;i<N;i++) bFim[i] += p.fim[i]; });
+  /* lançamentos amarrados a uma linha do EKO entram no próprio nó e sobem na hierarquia */
+  ADJ = {};
+  const gsAtivos = grupos();
+  for (const e of S.entries){
+    const i = DIDX[e.dt];
+    if (i === undefined || e.off || !e.nid || !NODE[e.nid]) continue;
+    if (!gsAtivos.includes(e.grp || 'BVT')) continue;
+    if (e.org === 'M' && !S.useMan) continue;
+    if (e.org === 'S' && !S.useSim) continue;
+    let c = NODE[e.nid];
+    while (c){ (ADJ[c.id] = ADJ[c.id] || {})[i] = ((ADJ[c.id] || {})[i] || 0) + e.val; c = NODE[c.parent]; }
+  }
   F = { ent, sai, ini, fim, livre, travas: tra, bFim, per };
 }
 function chainWith(includeSim){
@@ -803,6 +816,21 @@ function chainWith(includeSim){
 
 const sumR = (a, i0, i1) => { let s = 0; for (let i = i0; i <= i1; i++) s += a[i]; return s; };
 const nodeSum = (id, i0, i1) => sumR(ser(id), i0, i1);
+/* ajuste manual acumulado no nó (inclui o que foi lançado nos filhos) */
+function adjSum(id, i0, i1){
+  const m = ADJ[id]; if (!m) return 0;
+  let s = 0; for (const k in m){ const i = +k; if (i >= i0 && i <= i1) s += m[k]; }
+  return s;
+}
+/* valor da linha como o gestor deve ver: EKO + lançamentos amarrados a ela */
+const nodeTot = (id, i0, i1) => nodeSum(id, i0, i1) + adjSum(id, i0, i1);
+
+/* acha as linhas do EKO onde um lançamento pode ser encaixado */
+function nosDoDestino(grp, cat, sub){
+  return D.nodes.filter(n => n.grp === grp && n.cat === cat && (n.sub || '') === (sub || ''))
+    .sort((a, b) => (a.seg || a.nome).localeCompare(b.seg || b.nome, 'pt-BR'));
+}
+const rotuloNo = id => NODE[id] ? pathOf(id) : '';
 
 function extrasIn(i0, i1, orgs){
   return S.entries.filter(e => {
@@ -1002,11 +1030,12 @@ function movRows(i0, i1, kind){
     const n = NODE[id];
     if (kind && n.kind !== kind) return;
     if (!MATCH.has(id)) return;
-    const v = nodeSum(id, i0, i1);
+    const v = nodeTot(id, i0, i1);
     if (Math.abs(v) < .5) return;
     rows.push({ label: pathOf(id), val: Math.abs(v), sign: dispSign(n), kind: n.kind, org: 'EKO', id });
   });
   extrasIn(i0, i1, activeOrgs()).forEach(e => {
+    if (e.nid && NODE[e.nid]) return;   // já contabilizado dentro da linha do EKO
     if (kind && e.tp !== kind) return;
     if (S.cat && e.cat !== S.cat) return;
     if (S.sub && (e.sub||'') !== S.sub) return;
@@ -1030,14 +1059,14 @@ function topTable(el, i0, i1, kind, lim){
 
 /* ============================ árvore hierárquica ============================ */
 function subtreeAbs(id, i0, i1){
-  let s = Math.abs(nodeSum(id, i0, i1));
+  let s = Math.abs(nodeTot(id, i0, i1));
   (KIDS[id] || []).forEach(k => { s += subtreeAbs(k, i0, i1); });
   return s;
 }
 function treeRows(id, i0, i1, lvl, key, out){
   const n = NODE[id];
   if (!MATCH.has(id)) return;
-  const v = nodeSum(id, i0, i1) * dispSign(n);
+  const v = nodeTot(id, i0, i1) * dispSign(n);
   const kids = (KIDS[id] || []).filter(k => MATCH.has(k));
   const hasKids = kids.length > 0;
   const opened = S.open[key].has(id);
@@ -1047,7 +1076,7 @@ function treeRows(id, i0, i1, lvl, key, out){
     let sum = 0;
     const buf = [];
     kids.forEach(k => { treeRows(k, i0, i1, lvl+1, key, buf); });
-    kids.forEach(k => { sum += nodeSum(k, i0, i1) * dispSign(NODE[k]); });
+    kids.forEach(k => { sum += nodeTot(k, i0, i1) * dispSign(NODE[k]); });
     out.push(...buf);
     const res = v - sum;
     if (Math.abs(res) > 1)
@@ -1160,10 +1189,11 @@ function renderDay(){
 
   const extras = extrasIn(i, i, ['M','S']);
   let extraRows = '';
-  if (extras.length){
-    const inc = extras.filter(e => (e.org==='M'&&S.useMan)||(e.org==='S'&&S.useSim));
+  const soltos = extras.filter(e => !(e.nid && NODE[e.nid]));
+  if (soltos.length){
+    const inc = soltos.filter(e => (e.org==='M'&&S.useMan)||(e.org==='S'&&S.useSim));
     const t = inc.reduce((s,e)=>s+(e.tp==='E'?e.val:-e.val),0);
-    extraRows = `<tr class="tot"><td>Lançamentos manuais e simulações ativos</td><td class="n ${cls(t)}">${fMil(t)}</td></tr>`;
+    extraRows = `<tr class="tot"><td>Lançamentos sem linha definida</td><td class="n ${cls(t)}">${fMil(t)}</td></tr>`;
   }
   renderTree($('dTree'), roots('E').concat(roots('S')), i, i, 'dTree', extraRows +
     `<tr class="tot"><td>Resultado do dia</td><td class="n ${cls(r)}">${fMil(r)}</td></tr>`);
@@ -1171,8 +1201,10 @@ function renderDay(){
   $('dExtra').innerHTML = `<thead><tr><th>Origem</th><th>Descrição</th><th class="n">R$ mil</th><th></th></tr></thead><tbody>` +
     (extras.length ? extras.map(e => `<tr><td><span class="bdg ${e.org==='M'?'man':'sim'}">${e.org==='M'?'Manual':'Simulação'}</span>
         ${e.org==='S'?`<div class="mut" style="font-size:11px">${esc(e.cen||'')}</div>`:''}</td>
-      <td>${esc(e.desc||'—')}<div class="mut" style="font-size:11px">${esc([e.cat,e.sub,e.seg].filter(Boolean).join(' › '))}</div></td>
-      <td class="n ${e.tp==='E'?'pos':'neg'}">${fMil(e.tp==='E'?e.val:-e.val)}</td>
+      <td>${esc(e.desc||'—')}<div class="mut" style="font-size:11px">${e.nid&&NODE[e.nid]
+        ? '↳ aplicado em ' + esc(rotuloNo(e.nid))
+        : esc([e.cat,e.sub,e.seg].filter(Boolean).join(' › ')) || 'linha própria'}</div></td>
+      <td class="n ${(e.tp==='E'?e.val:-e.val)>=0?'pos':'neg'}">${fMil(e.tp==='E'?e.val:-e.val)}</td>
       <td><button class="btn dgr sm" data-del="${e.id}">Excluir</button></td></tr>`).join('')
       : `<tr><td colspan="4" class="empty">Nenhum lançamento manual ou simulado nesta data.</td></tr>`) + `</tbody>`;
   $('dExtra').querySelectorAll('[data-del]').forEach(b => b.onclick = () => delEntry(b.dataset.del));
@@ -1206,7 +1238,7 @@ function renderMonth(){
   roots('S').forEach(rid => (KIDS[rid] || []).forEach(id => {
     if (!MATCH.has(id)) return;
     const n = NODE[id], key = n.cat && n.cat !== 'Saídas' ? n.cat : n.nome;
-    catMap[key] = (catMap[key] || 0) + nodeSum(id, i0, i1);
+    catMap[key] = (catMap[key] || 0) + nodeTot(id, i0, i1);
   }));
   const tSai = sai || 1;
   $('mBlocks').innerHTML = Object.entries(catMap).filter(([, v]) => Math.abs(v) > .5)
@@ -1289,7 +1321,7 @@ function renderExec(){
     rids.forEach(rid => (KIDS[rid]||[]).forEach(id => {
       if (!MATCH.has(id)) return;
       const n = NODE[id];
-      const v = nodeSum(id,i0,i1) * (sign ? dispSign(n) : 1);
+      const v = nodeTot(id,i0,i1) * (sign ? dispSign(n) : 1);
       m[n.nome] = (m[n.nome] || 0) + v;
     }));
     return Object.entries(m).map(([label,val]) => ({label,val}))
@@ -1646,6 +1678,28 @@ function syncLancCats(){
 function syncLancSubs(){
   const c = $('lCat').value;
   fillSel($('lSub'), c && SUBS[c] ? [...SUBS[c]].sort((a,b)=>a.localeCompare(b,'pt-BR')) : [], 'Opcional', $('lSub').value);
+  syncLancNos();
+}
+/* lista as linhas reais do EKO onde o lançamento pode ser encaixado */
+function syncLancNos(){
+  const grp = $('lGrp').value, cat = $('lCat').value, sub = $('lSub').value;
+  const nos = (cat ? nosDoDestino(grp, cat, sub) : []).filter(n => n.parent);
+  const atual = $('lNo').value;
+  $('lNo').innerHTML =
+    `<option value="">Sem detalhe — linha própria de lançamentos</option>` +
+    nos.map(n => `<option value="${n.id}"${n.id===atual?' selected':''}>${esc(n.seg || n.nome)}</option>`).join('');
+  syncLancDestino();
+}
+function syncLancDestino(){
+  const id = $('lNo').value, el = $('lDestino');
+  if (id && NODE[id]){
+    $('lTipo').value = NODE[id].kind;
+    el.innerHTML = `O valor entra direto em <b>${esc(rotuloNo(id))}</b> — a linha do EKO muda, e o total sobe na hierarquia.`;
+    el.style.color = 'var(--pos)';
+  } else {
+    el.innerHTML = 'Sem uma linha escolhida, o lançamento aparece separado, na linha de lançamentos manuais.';
+    el.style.color = '';
+  }
 }
 function addEntry(o){
   const e = Object.assign({ id: uid(), ts: Date.now() }, o);
@@ -1661,9 +1715,11 @@ function renderLanc(){
       <td><span class="bdg ${e.org==='M'?'man':'sim'}">${e.org==='M'?'Manual':'Simulação'}</span>
         ${e.org==='S'?`<div class="mut" style="font-size:11px">${esc(e.cen||'')}</div>`:''}</td>
       <td>${e.tp==='E'?'Entrada':'Saída'}</td>
-      <td>${esc([e.cat,e.sub,e.seg].filter(Boolean).join(' › ')) || '<span class="mut">—</span>'}</td>
+      <td>${e.nid && NODE[e.nid]
+        ? `<span class="bdg eko">na linha do EKO</span><div style="font-size:11.5px">${esc(rotuloNo(e.nid))}</div>`
+        : (esc([e.cat,e.sub,e.seg].filter(Boolean).join(' › ')) || '<span class="mut">linha própria</span>')}</td>
       <td>${esc(e.desc||'—')}${e.obs?`<div class="mut" style="font-size:11px">${esc(e.obs)}</div>`:''}</td>
-      <td class="n ${e.tp==='E'?'pos':'neg'}">${fMil(e.tp==='E'?e.val:-e.val)}</td>
+      <td class="n ${(e.tp==='E'?e.val:-e.val)>=0?'pos':'neg'}">${fMil(e.tp==='E'?e.val:-e.val)}</td>
       <td><input type="checkbox" data-tgl="${e.id}" ${e.off?'':'checked'}></td>
       <td><button class="btn dgr sm" data-del="${e.id}">Excluir</button></td></tr>`).join('')
       : `<tr><td colspan="8" class="empty">Nenhum lançamento incluído. Use o formulário acima para registrar uma movimentação que ainda não está no EKO.</td></tr>`) +
@@ -1841,16 +1897,27 @@ document.querySelectorAll('#sQuick button').forEach(b => b.onclick = () => {
 });
 $('lTipo').onchange = syncLancCats;
 $('lCat').onchange = syncLancSubs;
-$('lClear').onclick = () => { ['lValor','lDesc','lObs','lSeg'].forEach(i => $(i).value = ''); $('lMsg').textContent=''; };
+$('lSub').onchange = syncLancNos;
+$('lGrp').onchange = syncLancNos;
+$('lNo').onchange = syncLancDestino;
+$('lClear').onclick = () => { ['lValor','lDesc','lObs'].forEach(i => $(i).value = ''); $('lMsg').textContent=''; };
 $('lSave').onclick = () => {
   const v = parseFloat($('lValor').value), dt = $('lData').value;
-  if (!dt || !(v > 0)){ $('lMsg').textContent = 'Informe data e valor maior que zero.'; return; }
+  if (!dt || !Number.isFinite(v) || v === 0){
+    $('lMsg').textContent = 'Informe a data e um valor diferente de zero (negativo estorna).'; return; }
   if (!DIDX[dt]) { const inRange = dt >= D.dates[0] && dt <= D.dates[N-1];
     if (!inRange){ $('lMsg').textContent = `Use uma data entre ${dBRfull(D.dates[0])} e ${dBRfull(D.dates[N-1])}.`; return; }
     if (DIDX[dt] === undefined){ $('lMsg').textContent = 'Essa data não é dia útil no fluxo. Escolha o dia útil seguinte.'; return; } }
-  addEntry({ grp: $('lGrp').value, org: $('lOrig').value, dt, tp: $('lTipo').value, cat: $('lCat').value, sub: $('lSub').value,
-    seg: $('lSeg').value, desc: $('lDesc').value, obs: $('lObs').value, cen: $('lOrig').value==='S' ? ($('lCen').value||'Base') : '', val: v });
-  $('lMsg').textContent = `Lançamento de ${fMil(v)} mil registrado em ${dBRfull(dt)}.`;
+  const nid = $('lNo').value;
+  const alvo = nid && NODE[nid] ? NODE[nid] : null;
+  addEntry({ grp: $('lGrp').value, org: $('lOrig').value, dt,
+    tp: alvo ? alvo.kind : $('lTipo').value, nid: nid || null,
+    cat: $('lCat').value, sub: $('lSub').value, seg: alvo ? (alvo.seg || alvo.nome) : '',
+    desc: $('lDesc').value, obs: $('lObs').value,
+    cen: $('lOrig').value==='S' ? ($('lCen').value||'Base') : '', val: v });
+  $('lMsg').textContent = alvo
+    ? `${fMil(v)} mil aplicado em ${rotuloNo(nid)} no dia ${dBRfull(dt)}.`
+    : `Lançamento de ${fMil(v)} mil registrado em ${dBRfull(dt)}, na linha de lançamentos manuais.`;
   ['lValor','lDesc','lObs'].forEach(i => $(i).value = '');
   render();
 };
@@ -1928,7 +1995,7 @@ $('sTipo').onchange = () => {
 $('sAdd').onclick = () => {
   const t = $('sTipo').value, v = parseFloat($('sValor').value), dt = $('sData').value, dt2 = $('sData2').value;
   const cen = $('sCen').value || 'Cenário 1', ds = $('sDesc').value;
-  if (!dt || !(v > 0)){ alert('Informe data e valor maior que zero.'); return; }
+  if (!dt || !Number.isFinite(v) || v === 0){ alert('Informe a data e um valor diferente de zero.'); return; }
   if (DIDX[dt] === undefined){ alert('Essa data não é dia útil no fluxo. Escolha o dia útil mais próximo.'); return; }
   const mk = (tp, d, desc, cat, sub) => addEntry({ grp:S.simGrp, org:'S', dt:d, tp, val:v, cen, desc, cat, sub, seg:'', obs:'' });
   if (t === 'pgto') mk('S', dt, ds || 'Pagamento extraordinário', 'Outras Saídas', 'Outras Saídas');
@@ -2246,7 +2313,7 @@ Versão congelada em ${new Date().toLocaleString('pt-BR')}.
   $('mSel').innerHTML = MONTHS.map(m => `<option value="${m.key}">${mBR(m.key)}</option>`).join('');
   $('lData').value = TODAY; $('sData').value = TODAY; $('oData').value = TODAY;
   $('fLim').value = S.lim; $('chkSim').checked = S.useSim; $('chkMan').checked = S.useMan; $('chkEko').checked = S.useEko;
-  syncLancCats();
+  syncLancCats(); syncLancNos();
   Store.aoMudar(pintarSync);
   render();
 })();
