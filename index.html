@@ -292,6 +292,62 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 </head>
 <body data-modo="claro">
+
+<div id="authGate" style="position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:#0C3527;font-family:'IBM Plex Sans',system-ui,sans-serif;">
+  <form id="authForm" style="background:#FFFFFF;border-radius:16px;padding:34px 32px;width:100%;max-width:320px;box-shadow:0 20px 60px -20px rgba(0,0,0,.5);">
+    <h1 style="margin:0 0 4px;font-size:18px;font-weight:600;color:#16211D;">Fluxo de Caixa</h1>
+    <p style="margin:0 0 20px;font-size:12.5px;color:#5A6A64;">Entre com seu e-mail e senha para acessar.</p>
+    <input id="authEmail" type="email" autocomplete="username" placeholder="E-mail" required
+      style="width:100%;padding:11px 13px;margin-bottom:10px;border:1px solid rgba(22,40,32,.15);border-radius:10px;font-size:14px;">
+    <input id="authSenha" type="password" autocomplete="current-password" placeholder="Senha" required
+      style="width:100%;padding:11px 13px;margin-bottom:14px;border:1px solid rgba(22,40,32,.15);border-radius:10px;font-size:14px;">
+    <button type="submit" id="authBtn"
+      style="width:100%;padding:11px;border:0;border-radius:10px;background:#00694A;color:#fff;font-size:14px;font-weight:600;">Entrar</button>
+    <p id="authErro" style="display:none;margin:12px 0 0;font-size:12.5px;color:#B14A45;"></p>
+  </form>
+</div>
+<script>
+(function(){
+  var SUPABASE_URL = 'https://xwfzcmzxmtyqwmmmrztt.supabase.co';
+  var SUPABASE_KEY = 'sb_publishable_lIkOZxVajcKpfgm15PZGmA_jhJaCpyJ';
+  var auth = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  window.__sbAuthClient = auth; // reaproveitado pelo Store, mais abaixo, para não duplicar sessão
+
+  var gate = document.getElementById('authGate');
+  var form = document.getElementById('authForm');
+  var erro = document.getElementById('authErro');
+  var btn  = document.getElementById('authBtn');
+
+  function mostrarErro(msg){
+    erro.textContent = msg;
+    erro.style.display = 'block';
+  }
+
+  auth.auth.getSession().then(function(r){
+    if (r.data && r.data.session){ gate.style.display = 'none'; }
+  });
+
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    erro.style.display = 'none';
+    btn.disabled = true; btn.textContent = 'Entrando...';
+    var email = document.getElementById('authEmail').value.trim();
+    var senha = document.getElementById('authSenha').value;
+    auth.auth.signInWithPassword({ email: email, password: senha }).then(function(res){
+      if (res.error){
+        mostrarErro('E-mail ou senha incorretos.');
+        btn.disabled = false; btn.textContent = 'Entrar';
+        return;
+      }
+      window.location.reload();
+    }).catch(function(){
+      mostrarErro('Não foi possível conectar. Tente novamente.');
+      btn.disabled = false; btn.textContent = 'Entrar';
+    });
+  });
+})();
+</script>
+
 <header class="top">
   <div class="top-in">
     <span class="logos">
@@ -305,6 +361,7 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
     <span class="sync" id="sbSync" title="Estado da sincronização"><i></i><span>—</span></span>
     <button class="tbtn" id="btnObs">Observações <span id="obsCount" class="mut"></span></button>
     <button class="tbtn" id="btnData">Dados</button>
+    <button class="tbtn" id="btnSair" title="Sair da conta">Sair</button>
   </div>
 </header>
 
@@ -731,7 +788,7 @@ const Store = (() => {
   const mem = {};
   const sbOk = typeof window !== 'undefined' && window.supabase && SUPABASE_KEY
             && SUPABASE_KEY.indexOf('COLE_') !== 0;
-  const db = sbOk ? window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY) : null;
+  const db = sbOk ? (window.__sbAuthClient || window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY)) : null;
   const has = typeof window !== 'undefined' && window.storage && window.storage.get;
   let mode = sbOk ? 'supabase' : (has ? 'nuvem' : 'memória');
   if (mode === 'memória'){ try { localStorage.setItem('_t','1'); localStorage.removeItem('_t'); mode = 'navegador'; } catch(e){} }
@@ -2288,6 +2345,10 @@ $('sOn').onclick = () => { S.useSim = !S.useSim; $('chkSim').checked = S.useSim;
 $('sClear').onclick = () => { if (!confirm('Excluir todas as movimentações simuladas?')) return;
   S.entries = S.entries.filter(e => e.org !== 'S'); save(); render(); };
 
+$('btnSair').onclick = async () => {
+  if (window.__sbAuthClient) await window.__sbAuthClient.auth.signOut();
+  window.location.reload();
+};
 $('btnObs').onclick = () => { if (!$('oData').value) $('oData').value = D.dates[S.d] || TODAY; openDrawer('drawer'); };
 $('obsClose').onclick = closeDrawers;
 $('scrim').onclick = closeDrawers;
