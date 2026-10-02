@@ -373,6 +373,8 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
   <button data-p="lanc">Lançamentos</button>
   <button data-p="sim">Simulação</button>
   <button data-p="rec">Análise de receitas</button>
+  <button data-p="sai">Análise de saídas</button>
+  <button data-p="res">Resumo diário</button>
   <span class="navsp"></span>
   <span class="flag" id="navFlag"></span>
 </nav>
@@ -591,6 +593,14 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
         <div class="form" id="lForm">
           <div class="fld"><label for="lGrp">Grupo econômico</label>
             <select id="lGrp"><option value="BVT">Bravante</option><option value="MAR">Marlin</option></select></div>
+          <div class="fld"><label for="lCls">Natureza</label>
+            <select id="lCls">
+              <option value="fluxo">Movimentação de caixa</option>
+              <option value="trava">Trava (reduz o caixa livre)</option>
+              <option value="destrava">Destrava (libera caixa)</option>
+            </select></div>
+          <div class="fld" id="lTcatW" style="display:none"><label for="lTcat">Trava de</label>
+            <select id="lTcat"><option value="banco">Bancária</option><option value="ger">Gerencial</option></select></div>
           <div class="fld"><label for="lOrig">Origem</label>
             <select id="lOrig"><option value="M">Manual (movimentação real)</option><option value="S">Simulação (cenário)</option></select></div>
           <div class="fld"><label for="lData">Data</label><input type="date" id="lData"></div>
@@ -603,6 +613,8 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
           <div class="fld"><label for="lCen">Cenário</label><input id="lCen" placeholder="Base" value="Base"></div>
           <div class="fld fw"><label for="lDesc">Descrição</label><input id="lDesc" placeholder="Ex.: Pagamento extraordinário fornecedor X"></div>
           <div class="fld fw"><label for="lObs">Observação</label><input id="lObs" placeholder="opcional"></div>
+          <div class="fld fw"><label class="chk"><input type="checkbox" id="lCorrige">
+            Corrigir também dias já realizados (use só para acertar um lançamento errado do EKO)</label></div>
         </div>
         <datalist id="segList"></datalist>
         <div class="row" style="margin-top:12px">
@@ -649,6 +661,14 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
                 </select></div>
               <div class="fld"><label for="sData" id="sDataL">Data</label><input type="date" id="sData"></div>
               <div class="fld" id="sData2W" style="display:none"><label for="sData2">Nova data</label><input type="date" id="sData2"></div>
+              <div class="fld"><label for="sCls">Natureza</label>
+                <select id="sCls">
+                  <option value="fluxo">Movimentação de caixa</option>
+                  <option value="trava">Trava de saldo</option>
+                  <option value="destrava">Destrava de saldo</option>
+                </select></div>
+              <div class="fld" id="sTcatW" style="display:none"><label for="sTcat">Trava de</label>
+                <select id="sTcat"><option value="banco">Bancária</option><option value="ger">Gerencial</option></select></div>
               <div class="fld"><label for="sValor">Valor (R$ mil)</label><input type="number" id="sValor" step="0.01" placeholder="130"></div>
               <div class="fld"><label for="sCen">Cenário</label><input id="sCen" value="Cenário 1"></div>
               <div class="fld fw"><label for="sDesc">Descrição</label><input id="sDesc" placeholder="Ex.: Antecipar recebimento Petrobras"></div>
@@ -762,6 +782,109 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
     <div class="block">
       <h3>Semana a semana<span class="sub" id="rcG4sub"></span></h3>
       <div class="bd"><div id="rcG4"></div></div>
+    </div>
+  </section>
+  <!-- ===================== ANALISE DE SAIDAS ===================== -->
+  <section class="page" id="p-sai">
+    <div class="filters">
+      <div class="fld"><label for="scMes">Mês analisado</label><select id="scMes"></select></div>
+      <div class="fld"><label for="scCat">Categoria</label><select id="scCat"></select></div>
+      <div class="fld"><label for="scDet">Rubrica / segmento</label><select id="scDet"></select></div>
+      <div class="fld"><label for="scExibir">Comparar</label>
+        <select id="scExibir">
+          <option value="tudo">Realizado + projetado</option>
+          <option value="real">Só realizado</option>
+          <option value="proj">Só projetado</option>
+        </select></div>
+      <div class="fld"><label for="scJanela">Média histórica</label>
+        <select id="scJanela">
+          <option value="3">Últimos 3 meses</option>
+          <option value="6">Últimos 6 meses</option>
+          <option value="12">Últimos 12 meses</option>
+          <option value="0">Todos os meses</option>
+        </select></div>
+      <div class="fld"><label for="scLimiar">Alerta a partir de (%)</label><input type="number" id="scLimiar" min="1" step="5"></div>
+      <button class="btn sec" id="scHoje">Mês atual</button>
+      <button class="btn sec" id="scLimpar">Limpar</button>
+    </div>
+
+    <div class="kpis" id="scKpis"></div>
+
+    <div class="grid g23">
+      <div class="block">
+        <h3>Alertas de saída<span class="sub" id="scAlertaN"></span></h3>
+        <div id="scAlertas" style="max-height:430px;overflow:auto"></div>
+      </div>
+      <div class="block">
+        <h3>Duplicidades prováveis<span class="sub" id="scDupN"></span></h3>
+        <div class="tw"><table id="scDup"></table></div>
+        <div class="bd"><p class="hint" style="margin:0">Mesmo valor pago mais de uma vez na mesma linha,
+          dentro de 10 dias úteis. Parcelas fixas e folha repetem por natureza — confira antes de concluir que é erro.</p></div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Saídas por categoria e rubrica<span class="sub">clique na categoria para abrir o detalhe</span></h3>
+      <div class="tw"><table class="tree" id="scTabela"></table></div>
+    </div>
+
+    <div class="grid g2">
+      <div class="block">
+        <h3>Por categoria<span class="sub">média histórica x realizado x projetado</span></h3>
+        <div class="bd"><div id="scG1"></div></div>
+      </div>
+      <div class="block">
+        <h3>Rubricas com maior desvio<span class="sub">as 12 maiores diferenças vs média</span></h3>
+        <div class="bd"><div id="scG2"></div></div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Evolução mensal<span class="sub">realizado, projetado e média histórica</span></h3>
+      <div class="bd"><div id="scG3"></div></div>
+    </div>
+
+    <div class="block">
+      <h3>Semana a semana<span class="sub" id="scG4sub"></span></h3>
+      <div class="bd"><div id="scG4"></div></div>
+    </div>
+  </section>
+  <!-- ===================== RESUMO DIARIO DE CAIXA ===================== -->
+  <section class="page" id="p-res">
+    <div class="block">
+      <h3>
+        <button class="tbtn sm" id="rsPrev">‹</button>
+        <input type="date" id="rsData" class="inp">
+        <button class="tbtn sm" id="rsNext">›</button>
+        <button class="tbtn sm" id="rsHoje">Hoje</button>
+        <span class="sp"></span>
+        <span id="rsIdent" style="font-size:12px"></span>
+      </h3>
+      <div class="bd">
+        <div class="row">
+          <div class="fld" style="min-width:170px"><label for="rsMargem">Margem de segurança (R$ mil)</label>
+            <input type="number" id="rsMargem" step="100" value="0"></div>
+          <button class="btn sec sm" id="rsNovo">Novo resumo</button>
+          <button class="btn sec sm" id="rsRascunho">Salvar rascunho</button>
+          <button class="btn sm" id="rsFinal">Finalizar</button>
+          <button class="btn sec sm" id="rsDuplicar">Duplicar para outro dia</button>
+          <button class="btn sec sm" id="rsImprimir">Imprimir</button>
+        </div>
+        <p class="hint" style="margin-bottom:0">Os valores em cinza vêm do ECO. Digite por cima para ajustar só este
+          resumo — o fluxo, os saldos e os lançamentos originais não mudam. Campo em branco volta ao valor do ECO.</p>
+      </div>
+    </div>
+
+    <div class="kpis" id="rsKpis"></div>
+
+    <div class="block">
+      <h3>Posição do dia<span class="sub">semana inteira em colunas · a coluna do dia selecionado é editável</span></h3>
+      <div class="tw"><table class="tree" id="rsTabela"></table></div>
+    </div>
+
+    <div class="block">
+      <h3>Resumos salvos<span class="sub" id="rsHistN"></span></h3>
+      <div class="tw"><table id="rsHist"></table></div>
     </div>
   </section>
 </main>
@@ -947,7 +1070,7 @@ const S = {
   cat: '', sub: '', seg: '', tipo: '',
   useEko: true, useMan: true, useSim: false,
   lim: 5000,
-  simA: null, simB: null, simGrp: 'BVT', dsvFiltro: 'todos', justif: {}, modo: 'claro',
+  simA: null, simB: null, simGrp: 'BVT', dsvFiltro: 'todos', justif: {}, resumos: {}, modo: 'claro',
   entries: [], notes: [], versoes: [],
   editNote: null,
   open: { dTree: new Set(['ENT','MENT','SAI','MSAI']), mRec: new Set(['REC','MREC']), mDesp: new Set(['SAI','MSAI']) }
@@ -980,6 +1103,8 @@ function chainGroup(g, opts){
     const i = DIDX[e.dt];
     if (i === undefined || e.off || i < from) continue;
     if ((e.grp || 'BVT') !== g) continue;
+    if (e.cls === 'trava' || e.cls === 'destrava') continue;   // travas não são fluxo
+    if (!valeNoDia(e, i)) continue;                            // manual só afeta projeção
     if (e.org === 'M' && (o.man === false || !S.useMan)) continue;
     if (e.org === 'S' && !(o.sim != null ? o.sim : S.useSim)) continue;
     (e.tp === 'E' ? ent : sai)[i] += e.val;
@@ -988,6 +1113,28 @@ function chainGroup(g, opts){
   let cur = (D.saldo[g] && D.saldo[g].caixaIni[from]) || 0;
   for (let i = from; i < N; i++){ ini[i] = cur; fim[i] = cur + ent[i] - sai[i]; cur = fim[i]; }
   return { ent, sai, ini, fim, from };
+}
+/* Lançamento manual e simulação valem apenas para dias ainda projetados.
+   Quando o dia vira realizado, o EKO passa a mandar e o lançamento sai do cálculo,
+   sem ser apagado. A exceção é a correção explícita de uma linha já realizada. */
+function valeNoDia(e, i){ return i > LRI || e.corrigeReal === true; }
+
+/* travas e destravas lançadas à mão: valem do dia informado em diante, só na projeção */
+function overlayTravas(gs){
+  const oB = new Float64Array(N), oG = new Float64Array(N);
+  for (const e of S.entries){
+    if (e.cls !== 'trava' && e.cls !== 'destrava') continue;
+    if (e.off || !gs.includes(e.grp || 'BVT')) continue;
+    if (e.org === 'M' && !S.useMan) continue;
+    if (e.org === 'S' && !S.useSim) continue;
+    let i = DIDX[e.dt];
+    if (i === undefined) continue;
+    i = Math.max(i, LRI + 1);
+    const sinal = e.cls === 'trava' ? 1 : -1;
+    const alvo = e.tcat === 'ger' ? oG : oB;
+    for (let k = i; k < N; k++) alvo[k] += sinal * e.val;
+  }
+  return { oB, oG };
 }
 function travaBancoOf(g){ return (D.saldo[g] || {}).travasBanco || []; }
 function travaGerOf(g){ return (D.saldo[g] || {}).travasCli || []; }
@@ -1004,7 +1151,9 @@ function recompute(){
       if (i >= p.from){ tBanco[i] += (tb[i] || 0); tGer[i] += (tg[i] || 0); }
     }
   });
+  const ov = overlayTravas(gs);
   for (let i = 0; i < N; i++){
+    tBanco[i] += ov.oB[i]; tGer[i] += ov.oG[i];
     tra[i] = tBanco[i] + tGer[i];
     livreBanco[i] = fim[i] - tBanco[i];
     livre[i] = fim[i] - tra[i];
@@ -1017,6 +1166,8 @@ function recompute(){
   for (const e of S.entries){
     const i = DIDX[e.dt];
     if (i === undefined || e.off || !e.nid || !NODE[e.nid]) continue;
+    if (e.cls === 'trava' || e.cls === 'destrava') continue;
+    if (!valeNoDia(e, i)) continue;
     if (!gsAtivos.includes(e.grp || 'BVT')) continue;
     if (e.org === 'M' && !S.useMan) continue;
     if (e.org === 'S' && !S.useSim) continue;
@@ -2039,7 +2190,7 @@ function delEntry(id){
 function noteHTML(n){
   return `<div class="note"><div class="h"><b>${dBRfull(n.dt)}</b><span>${dow(n.dt)}</span><span class="sp" style="flex:1"></span>
     <button class="act" data-en="${n.id}">editar</button><button class="act" data-dn="${n.id}">excluir</button></div>
-    <p>${esc(n.txt)}</p></div>`;
+    <p>${esc(n.txt)}</p>${autoriaHTML(n)}</div>`;
 }
 function bindNotes(root){
   root.querySelectorAll('[data-dn]').forEach(b => b.onclick = () => {
@@ -2059,6 +2210,27 @@ function renderNotes(){
 }
 
 /* ============================ lançamentos ============================ */
+const v0 = v => Math.abs(v);
+function situacaoLanc(e){
+  const i = DIDX[e.dt];
+  if (e.cls === 'trava' || e.cls === 'destrava') return '<span class="bdg r">vale da data em diante</span>';
+  if (i === undefined) return '<span class="bdg r">fora do calendário</span>';
+  if (i > LRI) return '<span class="bdg sim">projeção</span>';
+  return e.corrigeReal
+    ? '<span class="bdg man">corrige realizado</span>'
+    : '<span class="bdg r">data já realizada · fora do saldo</span>';
+}
+function syncLancNatureza(){
+  const c = $('lCls').value, trava = c !== 'fluxo';
+  $('lTcatW').style.display = trava ? '' : 'none';
+  ['lTipo','lCat','lSub','lNo'].forEach(id => { const el = $(id); if (el) el.disabled = trava; });
+  syncLancDestino();
+}
+function syncSimNatureza(){
+  const trava = $('sCls').value !== 'fluxo';
+  $('sTcatW').style.display = trava ? '' : 'none';
+  $('sTipo').disabled = trava;
+}
 function syncLancCats(){
   const k = $('lTipo').value;
   fillSel($('lCat'), CATS[k], 'Selecione', $('lCat').value);
@@ -2091,24 +2263,28 @@ function syncLancDestino(){
   }
 }
 function addEntry(o){
-  const e = Object.assign({ id: uid(), ts: Date.now() }, o);
+  const e = Object.assign({ id: uid(), ts: Date.now() }, carimboCriacao(), o);
   S.entries.push(e); save(); return e;
 }
 function renderLanc(){
   const list = [...S.entries].sort((a,b) => b.dt.localeCompare(a.dt) || b.ts - a.ts);
   $('lCount').textContent = list.length ? `${list.length} registro(s)` : 'nenhum ainda';
   $('lTable').innerHTML = `<thead><tr><th>Data</th><th>Origem</th><th>Tipo</th><th>Classificação</th>
-    <th>Descrição</th><th class="n">R$ mil</th><th>Ativo</th><th></th></tr></thead><tbody>` +
+    <th>Descrição</th><th class="n">R$ mil</th><th>Situação</th><th>Ativo</th><th></th></tr></thead><tbody>` +
     (list.length ? list.map(e => `<tr class="${e.off?'mut':''}">
       <td><b class="num">${dBRfull(e.dt)}</b></td>
       <td><span class="bdg ${e.org==='M'?'man':'sim'}">${e.org==='M'?'Manual':'Simulação'}</span>
         ${e.org==='S'?`<div class="mut" style="font-size:11px">${esc(e.cen||'')}</div>`:''}</td>
-      <td>${e.tp==='E'?'Entrada':'Saída'}</td>
+      <td>${e.cls==='trava'?'Trava '+(e.tcat==='ger'?'gerencial':'bancária')
+        : e.cls==='destrava'?'Destrava '+(e.tcat==='ger'?'gerencial':'bancária')
+        : (e.tp==='E'?'Entrada':'Saída')}</td>
       <td>${e.nid && NODE[e.nid]
         ? `<span class="bdg eko">na linha do EKO</span><div style="font-size:11.5px">${esc(rotuloNo(e.nid))}</div>`
         : (esc([e.cat,e.sub,e.seg].filter(Boolean).join(' › ')) || '<span class="mut">linha própria</span>')}</td>
-      <td>${esc(e.desc||'—')}${e.obs?`<div class="mut" style="font-size:11px">${esc(e.obs)}</div>`:''}</td>
-      <td class="n ${(e.tp==='E'?e.val:-e.val)>=0?'pos':'neg'}">${fMil(e.tp==='E'?e.val:-e.val)}</td>
+      <td>${esc(e.desc||'—')}${e.obs?`<div class="mut" style="font-size:11px">${esc(e.obs)}</div>`:''}${autoriaHTML(e)}</td>
+      <td class="n ${e.cls==='trava'?'neg':e.cls==='destrava'?'pos':((e.tp==='E'?e.val:-e.val)>=0?'pos':'neg')}">${
+        e.cls==='trava'||e.cls==='destrava' ? (e.cls==='trava'?'−':'+')+fMil(v0(e.val)) : fMil(e.tp==='E'?e.val:-e.val)}</td>
+      <td>${situacaoLanc(e)}</td>
       <td><input type="checkbox" data-tgl="${e.id}" ${e.off?'':'checked'}></td>
       <td><button class="btn dgr sm" data-del="${e.id}">Excluir</button></td></tr>`).join('')
       : `<tr><td colspan="8" class="empty">Nenhum lançamento incluído. Use o formulário acima para registrar uma movimentação que ainda não está no EKO.</td></tr>`) +
@@ -2191,6 +2367,8 @@ function render(){
   else if (S.page === 'lanc') renderLanc();
   else if (S.page === 'sim') renderSim();
   else if (S.page === 'rec') renderReceitas();
+  else if (S.page === 'sai') renderSaidas();
+  else if (S.page === 'res') renderResumo();
 }
 function pintarSync(e){
   const el = $('sbSync'); if (!el) return;
@@ -2294,6 +2472,8 @@ $('lCat').onchange = syncLancSubs;
 $('lSub').onchange = syncLancNos;
 $('lGrp').onchange = syncLancNos;
 $('lNo').onchange = syncLancDestino;
+$('lCls').onchange = syncLancNatureza;
+$('sCls').onchange = syncSimNatureza;
 $('lClear').onclick = () => { ['lValor','lDesc','lObs'].forEach(i => $(i).value = ''); $('lMsg').textContent=''; };
 $('lSave').onclick = () => {
   const v = parseFloat($('lValor').value), dt = $('lData').value;
@@ -2303,15 +2483,22 @@ $('lSave').onclick = () => {
     if (!inRange){ $('lMsg').textContent = `Use uma data entre ${dBRfull(D.dates[0])} e ${dBRfull(D.dates[N-1])}.`; return; }
     if (DIDX[dt] === undefined){ $('lMsg').textContent = 'Essa data não é dia útil no fluxo. Escolha o dia útil seguinte.'; return; } }
   const nid = $('lNo').value;
-  const alvo = nid && NODE[nid] ? NODE[nid] : null;
-  addEntry({ grp: $('lGrp').value, org: $('lOrig').value, dt,
-    tp: alvo ? alvo.kind : $('lTipo').value, nid: nid || null,
+  const cls = $('lCls').value;
+  const alvo = (cls === 'fluxo' && nid && NODE[nid]) ? NODE[nid] : null;
+  addEntry({ cls, tcat: cls === 'fluxo' ? null : $('lTcat').value,
+    corrigeReal: $('lCorrige').checked,
+    nidForce: null,
+    grp: $('lGrp').value, org: $('lOrig').value, dt,
+    tp: alvo ? alvo.kind : $('lTipo').value, nid: alvo ? nid : null,
     cat: $('lCat').value, sub: $('lSub').value, seg: alvo ? (alvo.seg || alvo.nome) : '',
     desc: $('lDesc').value, obs: $('lObs').value,
     cen: $('lOrig').value==='S' ? ($('lCen').value||'Base') : '', val: v });
-  $('lMsg').textContent = alvo
-    ? `${fMil(v)} mil aplicado em ${rotuloNo(nid)} no dia ${dBRfull(dt)}.`
-    : `Lançamento de ${fMil(v)} mil registrado em ${dBRfull(dt)}, na linha de lançamentos manuais.`;
+  const aviso = (DIDX[dt] !== undefined && DIDX[dt] <= LRI && !$('lCorrige').checked)
+    ? ' Atenção: essa data já está realizada, então o lançamento fica registrado mas não entra no saldo.' : '';
+  $('lMsg').textContent = (cls !== 'fluxo'
+    ? `${cls === 'trava' ? 'Trava' : 'Destrava'} ${$('lTcat').value === 'ger' ? 'gerencial' : 'bancária'} de ${fMil(v)} mil a partir de ${dBRfull(dt)}.`
+    : alvo ? `${fMil(v)} mil aplicado em ${rotuloNo(nid)} no dia ${dBRfull(dt)}.`
+           : `Lançamento de ${fMil(v)} mil registrado em ${dBRfull(dt)}, na linha de lançamentos manuais.`) + aviso;
   ['lValor','lDesc','lObs'].forEach(i => $(i).value = '');
   render();
 };
@@ -2393,7 +2580,9 @@ $('sAdd').onclick = () => {
   const cen = $('sCen').value || 'Cenário 1', ds = $('sDesc').value;
   if (!dt || !Number.isFinite(v) || v === 0){ alert('Informe a data e um valor diferente de zero.'); return; }
   if (DIDX[dt] === undefined){ alert('Essa data não é dia útil no fluxo. Escolha o dia útil mais próximo.'); return; }
-  const mk = (tp, d, desc, cat, sub) => addEntry({ grp:S.simGrp, org:'S', dt:d, tp, val:v, cen, desc, cat, sub, seg:'', obs:'' });
+  const clsS = $('sCls').value;
+  const mk = (tp, d, desc, cat, sub) => addEntry({ grp:S.simGrp, org:'S', dt:d, tp, val:v, cen, desc, cat, sub, seg:'', obs:'',
+    cls: clsS, tcat: clsS === 'fluxo' ? null : $('sTcat').value });
   if (t === 'pgto') mk('S', dt, ds || 'Pagamento extraordinário', 'Outras Saídas', 'Outras Saídas');
   else if (t === 'entr') mk('E', dt, ds || 'Nova entrada', 'Outras Entradas', '');
   else if (t === 'divida') mk('E', dt, ds || 'Nova captação', 'Captações', '');
@@ -2426,9 +2615,9 @@ $('oCancel').onclick = () => { S.editNote = null; $('oTxt').value=''; $('oCancel
 $('oSave').onclick = () => {
   const dt = $('oData').value || TODAY, txt = $('oTxt').value.trim();
   if (!txt){ $('oTxt').focus(); return; }
-  if (S.editNote){ const n = S.notes.find(x => x.id === S.editNote); if (n){ n.dt = dt; n.txt = txt; } S.editNote = null;
+  if (S.editNote){ const n = S.notes.find(x => x.id === S.editNote); if (n){ n.dt = dt; n.txt = txt; carimboAlteracao(n); } S.editNote = null;
     $('oCancel').style.display='none'; $('oSave').textContent='Salvar observação'; }
-  else S.notes.push({ id: uid(), dt, txt, ts: Date.now() });
+  else S.notes.push(Object.assign({ id: uid(), dt, txt, ts: Date.now() }, carimboCriacao()));
   $('oTxt').value = ''; save(); render();
 };
 $('btnData').onclick = () => {
@@ -2721,6 +2910,7 @@ Versão congelada em ${new Date().toLocaleString('pt-BR')}.
            S.modo = pr.modo === 'escuro' ? 'escuro' : 'claro'; }
   const vv = await Store.get('fdc_versoes'); if (Array.isArray(vv)) S.versoes = vv;
   const jj = await Store.get('fdc_justif'); if (jj && typeof jj === 'object') S.justif = jj;
+  const rr = await Store.get('fdc_resumos'); if (rr && typeof rr === 'object') S.resumos = rr;
   const nb = await Store.get('fdc_data');
   if (nb && nb.dates && nb.nodes) { try { initData(nb); } catch(e){} }
   document.querySelectorAll('#grpSeg button').forEach(x => x.classList.toggle('on', x.dataset.g === S.grp));
@@ -2731,7 +2921,7 @@ Versão congelada em ${new Date().toLocaleString('pt-BR')}.
   $('mSel').innerHTML = MONTHS.map(m => `<option value="${m.key}">${mBR(m.key)}</option>`).join('');
   $('lData').value = TODAY; $('sData').value = TODAY; $('oData').value = TODAY;
   $('fLim').value = S.lim; $('chkSim').checked = S.useSim; $('chkMan').checked = S.useMan; $('chkEko').checked = S.useEko;
-  syncLancCats(); syncLancNos();
+  syncLancCats(); syncLancNos(); syncLancNatureza(); syncSimNatureza();
   Store.aoMudar(pintarSync);
   render();
 })();
@@ -3028,5 +3218,513 @@ function rcvEventos(){
 </script>
 
 <script>rcvEventos();</script>
+<script>
+/* ===================== USUÁRIO RESPONSÁVEL ===================== */
+let USUARIO = { nome: '', id: '' };
+async function carregarUsuario(){
+  try {
+    const cli = window.__sbAuthClient;
+    if (!cli) return;
+    const r = await cli.auth.getUser();
+    const u = r && r.data && r.data.user;
+    if (!u) return;
+    const md = u.user_metadata || {};
+    USUARIO = { nome: md.nome || md.full_name || md.name || u.email || '', id: u.id || '' };
+    const el = document.getElementById('sbUser');
+    if (el) el.textContent = USUARIO.nome;
+  } catch(e){ console.warn('[usuário]', e); }
+}
+function carimboCriacao(){
+  return { criadoPor: USUARIO.nome, criadoPorId: USUARIO.id, criadoEm: new Date().toISOString() };
+}
+function carimboAlteracao(o){
+  o.alteradoPor = USUARIO.nome; o.alteradoPorId = USUARIO.id; o.alteradoEm = new Date().toISOString();
+  return o;
+}
+function autoriaHTML(o){
+  if (!o || (!o.criadoPor && !o.criadoEm)) return '';
+  const q = (d) => d ? new Date(d).toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '';
+  let s = `${esc(o.criadoPor || 'autor não registrado')} · ${q(o.criadoEm)}`;
+  if (o.alteradoEm) s += ` · editado por ${esc(o.alteradoPor || '—')} em ${q(o.alteradoEm)}`;
+  return `<div class="mut" style="font-size:11px">${s}</div>`;
+}
+
+/* ===================== ANÁLISE DE SAÍDAS ===================== */
+const SCV = { janela: 6, limiar: 30, piso: 300, mes: null, cat: '', det: '', exibir: 'tudo', open: new Set() };
+
+/* nível 1: categorias de saída (filhos diretos de Desembolsos) */
+function scvCategorias(){
+  const gs = grupos();
+  return D.nodes.filter(n => gs.includes(n.grp) && n.parent === ROOT[n.grp].S)
+                .sort((a,b) => a.nome.localeCompare(b.nome,'pt-BR'));
+}
+/* nível 2: rubricas e segmentos abaixo da categoria */
+const scvDetalhes = id => (KIDS[id] || []).map(k => NODE[k]);
+function scvFiltradas(){
+  let c = scvCategorias();
+  if (SCV.cat) c = c.filter(x => x.nome === SCV.cat);
+  return c;
+}
+const scvRotulo = n => n.seg || n.nome;
+
+function scvParte(id, m){
+  const a = m.idx[0], b = m.idx[m.idx.length - 1];
+  const r = a <= LRI ? nodeTot(id, a, Math.min(b, LRI)) : 0;
+  const p = b > LRI ? nodeTot(id, Math.max(a, LRI + 1), b) : 0;
+  return { r, p, t: r + p };
+}
+const scvValor = x => SCV.exibir === 'real' ? x.r : SCV.exibir === 'proj' ? x.p : x.t;
+const scvMesesBase = mi => MONTHS.filter(m => m.i < mi && m.idx.length >= 15 && m.idx[m.idx.length-1] <= LRI);
+function scvMedia(id, mi){
+  const cand = scvMesesBase(mi), sel = SCV.janela > 0 ? cand.slice(-SCV.janela) : cand;
+  if (!sel.length) return { media: 0, n: 0 };
+  const v = sel.map(m => nodeTot(id, m.idx[0], m.idx[m.idx.length-1]));
+  return { media: v.reduce((s,x)=>s+x,0) / v.length, n: sel.length };
+}
+function scvTendencia(id, mi){
+  const cand = scvMesesBase(mi).slice(-6);
+  if (cand.length < 4) return { t:'–', d:'histórico curto' };
+  const v = cand.map(m => nodeTot(id, m.idx[0], m.idx[m.idx.length-1]));
+  const meio = Math.floor(v.length/2);
+  const ant = v.slice(0,meio).reduce((s,x)=>s+x,0)/meio;
+  const rec = v.slice(meio).reduce((s,x)=>s+x,0)/(v.length-meio);
+  if (!ant) return { t:'–', d:'sem base' };
+  const r = (rec-ant)/Math.abs(ant);
+  if (r > .10) return { t:'▲ subindo', d:`${(r*100).toFixed(0)}% nos meses recentes` };
+  if (r < -.10) return { t:'▼ caindo', d:`${(r*100).toFixed(0)}% nos meses recentes` };
+  return { t:'► estável', d:'variação abaixo de 10%' };
+}
+function scvLinha(n, mi){
+  const m = MONTHS[mi], parte = scvParte(n.id, m), { media, n: nm } = scvMedia(n.id, mi);
+  const val = scvValor(parte), dif = val - media, rel = media ? dif/Math.abs(media) : 0;
+  const base = Math.abs(media) >= SCV.piso, alerta = base && Math.abs(rel) >= SCV.limiar/100;
+  /* em saída, gastar acima da média é o que merece atenção */
+  return { n, id:n.id, nome:scvRotulo(n), grp:n.grp, ...parte, val, media, nm, dif, rel, base, alerta,
+           acima: dif > 0, tend: scvTendencia(n.id, mi) };
+}
+function scvDuplicidades(mi){
+  const m = MONTHS[mi], a = m.idx[0], b = m.idx[m.idx.length-1], out = [];
+  scvFiltradas().forEach(cat => {
+    const folhas = [];
+    (function desce(id, prof){
+      const k = KIDS[id] || [];
+      if (!k.length || prof >= 2) folhas.push(id); else k.forEach(x => desce(x, prof+1));
+    })(cat.id, 0);
+    folhas.forEach(id => {
+      if (SCV.det && scvRotulo(NODE[id]) !== SCV.det) return;
+      const s = ser(id), vistos = {};
+      for (let i = a; i <= b; i++){
+        const v = Math.round(s[i]*100)/100;
+        if (Math.abs(v) < 50) continue;
+        (vistos[v] = vistos[v] || []).push(i);
+      }
+      Object.keys(vistos).forEach(k => {
+        const dias = vistos[k];
+        if (dias.length < 2 || dias[dias.length-1]-dias[0] > 10) return;
+        out.push({ id, nome: pathOf(id), valor: +k, dias });
+      });
+    });
+  });
+  return out.sort((x,y) => Math.abs(y.valor*y.dias.length) - Math.abs(x.valor*x.dias.length)).slice(0, 8);
+}
+
+function renderSaidas(){
+  if (SCV.mes == null || SCV.mes >= MONTHS.length) SCV.mes = MOF[TI];
+  const mi = SCV.mes, m = MONTHS[mi];
+  const cats = scvCategorias();
+  if ($('scMes').options.length !== MONTHS.length)
+    $('scMes').innerHTML = MONTHS.map(x => `<option value="${x.i}">${mBR(x.key)}</option>`).join('');
+  $('scMes').value = mi;
+  fillSel($('scCat'), [...new Set(cats.map(c => c.nome))], 'Todas as categorias', SCV.cat);
+  const dets = (SCV.cat ? cats.filter(c => c.nome === SCV.cat) : cats)
+    .flatMap(c => scvDetalhes(c.id)).map(scvRotulo);
+  fillSel($('scDet'), [...new Set(dets)].sort((a,b)=>a.localeCompare(b,'pt-BR')), 'Todas as rubricas', SCV.det);
+  $('scJanela').value = String(SCV.janela);
+  $('scLimiar').value = SCV.limiar;
+  $('scExibir').value = SCV.exibir;
+
+  let linhas = scvFiltradas().map(c => scvLinha(c, mi));
+  if (SCV.det)
+    linhas = scvFiltradas().flatMap(c => scvDetalhes(c.id)).filter(d => scvRotulo(d) === SCV.det).map(d => scvLinha(d, mi));
+
+  const tot = linhas.reduce((a,l) => ({ r:a.r+l.r, p:a.p+l.p, t:a.t+l.t, media:a.media+l.media, val:a.val+l.val }),
+                           { r:0,p:0,t:0,media:0,val:0 });
+  const dif = tot.val - tot.media, rel = tot.media ? dif/Math.abs(tot.media) : 0;
+  const nm = linhas.length ? Math.max(...linhas.map(l => l.nm)) : 0;
+  $('scKpis').innerHTML =
+    kpi('Média histórica mensal', tot.media, `${nm} ${nm===1?'mês':'meses'} realizados`, {hero:true}) +
+    kpi('Saídas realizadas', -tot.r, mBR(m.key)) +
+    kpi('Saídas projetadas', -tot.p, 'resto do mês') +
+    kpi('Total do mês', -tot.t, SCV.exibir !== 'tudo' ? 'KPIs seguem o filtro' : '') +
+    kpi('Diferença vs média', dif, dif >= 0 ? 'gastando acima do histórico' : 'gastando abaixo', {warn: Math.abs(rel) >= SCV.limiar/100}) +
+    `<div class="kpi"><div class="k">Variação percentual</div>
+       <div class="v ${dif>0?'neg':'pos'}">${rel>=0?'+':''}${(rel*100).toFixed(1)}<span class="u">%</span></div>
+       <div class="d">limiar de ${SCV.limiar}%</div></div>`;
+
+  const alertas = linhas.filter(l => l.alerta).sort((a,b) => Math.abs(b.dif) - Math.abs(a.dif));
+  $('scAlertaN').textContent = alertas.length ? `${alertas.length} fora do padrão` : 'nada fora do padrão';
+  $('scAlertas').innerHTML = alertas.length ? alertas.map(l => {
+    const texto = l.acima
+      ? 'Saída acima da média histórica. Verificar possível duplicidade, lançamento incorreto, antecipação de pagamento ou despesa extraordinária.'
+      : 'Saída abaixo da média histórica. Verificar pagamento postergado, lançamento faltante ou mudança de contrato.';
+    return `<div class="alert ${l.acima ? 'h' : 'm'}">
+      <span class="w"><b>${esc(l.nome)}${S.grp==='AMBOS'?' · '+GRUPOS[l.grp]:''}</b>
+        <div class="d">Média histórica ${fMil(l.media)} · mês ${fMil(l.val)} · variação
+          <b style="color:${l.acima?'var(--red)':'var(--warn)'}">${l.rel>=0?'+':''}${(l.rel*100).toFixed(1)}%</b></div>
+        <div class="d">${texto}</div></span>
+      <span class="vl ${l.acima?'neg':'pos'}">${l.dif>0?'+':''}${fMil(l.dif)}</span></div>`;
+  }).join('') : '<div class="empty">Nenhuma categoria fora do limiar com os parâmetros atuais.</div>';
+
+  const dups = scvDuplicidades(mi);
+  $('scDupN').textContent = dups.length ? `${dups.length} caso(s)` : 'nenhum caso';
+  $('scDup').innerHTML = dups.length
+    ? `<thead><tr><th>Linha</th><th class="n">Valor repetido</th><th>Dias</th><th class="n">Soma</th></tr></thead><tbody>` +
+      dups.map(d => `<tr><td>${esc(d.nome)}</td><td class="n">${fMil(d.valor)}</td>
+        <td>${d.dias.map(i => dBR(D.dates[i])).join(' · ')}</td>
+        <td class="n">${fMil(d.valor*d.dias.length)}</td></tr>`).join('') + '</tbody>'
+    : `<tbody><tr><td class="empty">Nenhum valor idêntico repetido na mesma linha dentro de 10 dias úteis.</td></tr></tbody>`;
+
+  let html = `<thead><tr><th>Categoria · rubrica</th><th class="n">Realizado</th><th class="n">Projetado</th>
+    <th class="n">Média histórica</th><th class="n">Diferença R$</th><th class="n">Variação %</th><th>Tendência</th><th>Status</th></tr></thead><tbody>`;
+  const status = l => !l.base ? '<span class="bdg r">base pequena</span>'
+    : l.alerta ? `<span class="bdg ${l.acima?'risk':'at'}">${l.acima?'acima do histórico':'abaixo do histórico'}</span>`
+    : '<span class="bdg ok">dentro do padrão</span>';
+  const linhaHtml = (l, nivel, abrivel) => `<tr class="${nivel?('tw-l'+Math.min(nivel+1,3)):'tw-l1'} ${(!nivel||abrivel)?'clik':''}" ${(!nivel||abrivel)?`data-sc="${l.id}"`:''}>
+      <td>${(!nivel||abrivel)?`<span class="tg b">${SCV.open.has(l.id)?'▾':'▸'}</span>`:'<span class="tg"></span>'}${esc(l.nome)}</td>
+      <td class="n">${fMil(-l.r)}</td><td class="n">${fMil(-l.p)}</td>
+      <td class="n mut">${fMil(l.media)}<div style="font-size:11px">${l.nm}m</div></td>
+      <td class="n ${l.dif>0?'neg':'pos'}">${l.dif>0?'+':''}${fMil(l.dif)}</td>
+      <td class="n ${l.dif>0?'neg':'pos'}">${l.media?((l.rel>=0?'+':'')+(l.rel*100).toFixed(1)+'%'):'—'}</td>
+      <td style="font-size:12px">${l.tend.t}</td><td>${status(l)}</td></tr>`;
+  if (SCV.det){ linhas.forEach(l => html += linhaHtml(l,1,false)); }
+  else if (!scvFiltradas().length){ html += '<tr><td colspan="8" class="empty">Nenhuma categoria de saída no filtro.</td></tr>'; }
+  else {
+    scvFiltradas().forEach(c => {
+      const l = scvLinha(c, mi);
+      html += linhaHtml(l, 0, true);
+      if (SCV.open.has(c.id)) (function desce(pai, nivel){
+        scvDetalhes(pai).map(d => scvLinha(d, mi))
+          .filter(x => Math.abs(x.t) > .5 || Math.abs(x.media) > .5)
+          .sort((a,b) => Math.abs(b.dif) - Math.abs(a.dif))
+          .forEach(x => {
+            const temFilho = (KIDS[x.id] || []).length > 0;
+            html += linhaHtml(x, nivel, temFilho);
+            if (temFilho && SCV.open.has(x.id)) desce(x.id, nivel + 1);
+          });
+      })(c.id, 1);
+    });
+    const T = scvFiltradas().map(c => scvLinha(c,mi)).reduce((a,l)=>({r:a.r+l.r,p:a.p+l.p,media:a.media+l.media,dif:a.dif+l.dif}),{r:0,p:0,media:0,dif:0});
+    html += `<tr class="tot"><td>Total</td><td class="n">${fMil(-T.r)}</td><td class="n">${fMil(-T.p)}</td>
+      <td class="n">${fMil(T.media)}</td><td class="n ${T.dif>0?'neg':'pos'}">${T.dif>0?'+':''}${fMil(T.dif)}</td>
+      <td class="n">${T.media?((T.dif/Math.abs(T.media)*100).toFixed(1)+'%'):'—'}</td><td></td><td></td></tr>`;
+  }
+  $('scTabela').innerHTML = html + '</tbody>';
+  $('scTabela').querySelectorAll('[data-sc]').forEach(tr => tr.onclick = (ev) => {
+    ev.stopPropagation();
+    const id = tr.dataset.sc;
+    SCV.open.has(id) ? SCV.open.delete(id) : SCV.open.add(id);
+    renderSaidas();
+  });
+
+  const porCat = scvFiltradas().map(c => scvLinha(c, mi)).filter(l => Math.abs(l.t) > .5 || Math.abs(l.media) > .5);
+  bars3($('scG1'), { h: 290, labels: porCat.map(l => l.nome),
+    series: [ { nome:'Média histórica', cor: CH.grey,  vals: porCat.map(l=>l.media) },
+              { nome:'Realizado',       cor: CH.green, vals: porCat.map(l=>l.r) },
+              { nome:'Projetado',       cor: CH.blue,  vals: porCat.map(l=>l.p) } ] });
+
+  const porDet = scvFiltradas().flatMap(c => scvDetalhes(c.id)).map(d => scvLinha(d, mi))
+    .filter(l => Math.abs(l.media) >= SCV.piso || Math.abs(l.t) >= SCV.piso)
+    .sort((a,b) => Math.abs(b.dif) - Math.abs(a.dif)).slice(0, 12);
+  bars3($('scG2'), { h: 290, labels: porDet.map(l => l.nome),
+    series: [ { nome:'Média histórica', cor: CH.grey,  vals: porDet.map(l=>l.media) },
+              { nome:'Mês analisado',   cor: CH.red,   vals: porDet.map(l=>l.t) } ] });
+
+  const serieMes = MONTHS.filter(x => x.idx.length >= 10);
+  const somaMes = (x, parte) => scvFiltradas().reduce((s,c) => s + scvParte(c.id, x)[parte], 0);
+  const mediaNoMes = x => scvFiltradas().reduce((s,c) => s + scvMedia(c.id, x.i).media, 0);
+  lineChart($('scG3'), { h: 280, labels: serieMes.map(x => mBR(x.key)),
+    series: [ { vals: serieMes.map(x => somaMes(x,'r')), color: CH.red, area: true },
+              { vals: serieMes.map(x => somaMes(x,'p')), color: CH.blue },
+              { vals: serieMes.map(x => mediaNoMes(x)),  color: CH.grey, dash:'5 4', w:1.8 } ],
+    mark: serieMes.findIndex(x => x.i === MOF[TI]),
+    legend: `<div class="lg"><span><i style="background:${CH.red}"></i>Realizado</span>
+      <span><i style="background:${CH.blue}"></i>Projetado</span>
+      <span><i style="background:${CH.grey}"></i>Média histórica</span></div>` });
+
+  const semanasDo = x => [...new Set(x.idx.map(i => WOF[i]))].map(wi => WEEKS[wi]);
+  const semAtual = semanasDo(m), semAnt = mi > 0 ? semanasDo(MONTHS[mi-1]) : [];
+  const somaSem = w => scvFiltradas().reduce((s,c) => s + nodeTot(c.id, w.idx[0], w.idx[w.idx.length-1]), 0);
+  const nSem = Math.max(semAtual.length, semAnt.length);
+  bars3($('scG4'), { h: 260, labels: Array.from({length:nSem}, (_,k) => `${k+1}ª semana`),
+    series: [ { nome: mi>0 ? mBR(MONTHS[mi-1].key) : 'mês anterior', cor: CH.grey,
+                vals: Array.from({length:nSem}, (_,k) => semAnt[k] ? somaSem(semAnt[k]) : 0) },
+              { nome: mBR(m.key), cor: CH.red,
+                vals: Array.from({length:nSem}, (_,k) => semAtual[k] ? somaSem(semAtual[k]) : 0) } ] });
+  $('scG4sub').textContent = mi > 0
+    ? `${mBR(m.key)} contra ${mBR(MONTHS[mi-1].key)}`
+    : 'sem mês anterior na base';
+}
+
+function scvEventos(){
+  $('scMes').onchange = () => { SCV.mes = +$('scMes').value; renderSaidas(); };
+  $('scCat').onchange = () => { SCV.cat = $('scCat').value; SCV.det = ''; renderSaidas(); };
+  $('scDet').onchange = () => { SCV.det = $('scDet').value; renderSaidas(); };
+  $('scJanela').onchange = () => { SCV.janela = +$('scJanela').value; renderSaidas(); };
+  $('scLimiar').onchange = () => { SCV.limiar = Math.max(1, +$('scLimiar').value || 30); renderSaidas(); };
+  $('scExibir').onchange = () => { SCV.exibir = $('scExibir').value; renderSaidas(); };
+  $('scHoje').onclick = () => { SCV.mes = MOF[TI]; renderSaidas(); };
+  $('scLimpar').onclick = () => { Object.assign(SCV, { janela:6, limiar:30, cat:'', det:'', exibir:'tudo', mes:MOF[TI] }); renderSaidas(); };
+}
+</script>
+
+<script>scvEventos(); carregarUsuario();</script>
+<script>
+/* ===================== RESUMO DIÁRIO DE CAIXA ===================== */
+/* Espelha a planilha da Tesouraria: uma coluna por dia, uma linha por item.
+   Puxa tudo do ECO, aceita ajuste manual por cima e guarda os dois lados
+   separados. Nada aqui altera o fluxo, os saldos ou os lançamentos do ECO. */
+
+const RES = { dia: null, margem: 0, aberto: new Set() };
+
+/* soma de um conjunto de nós, nos dois grupos ativos */
+function resSoma(sufixos, i){
+  let t = 0;
+  grupos().forEach(g => sufixos.forEach(sfx => {
+    const id = (g === 'MAR' ? 'M' : '') + sfx;
+    if (NODE[id]) t += nodeTot(id, i, i);
+  }));
+  return t;
+}
+/* alguns ids da Marlin não seguem o mesmo número: resolve por nome dentro da raiz */
+function resPorNome(nomes, raizKind, i){
+  let t = 0;
+  grupos().forEach(g => {
+    const raiz = ROOT[g][raizKind];
+    (KIDS[raiz] || []).forEach(id => { if (nomes.includes(NODE[id].nome)) t += nodeTot(id, i, i); });
+  });
+  return t;
+}
+function resReceita(i, estaleiro){
+  let t = 0;
+  grupos().forEach(g => {
+    const rec = g === 'MAR' ? 'MREC' : 'REC';
+    (KIDS[rec] || []).forEach(id => {
+      const ehEst = NODE[id].nome === 'Estaleiro';
+      if (ehEst === !!estaleiro) t += nodeTot(id, i, i) * dispSign(NODE[id]);
+    });
+  });
+  return t;
+}
+/* trava e destrava lançadas à mão, movimento do dia */
+function resTravaDia(i, cat){
+  let t = 0;
+  for (const e of S.entries){
+    if (e.cls !== 'trava' && e.cls !== 'destrava') continue;
+    if (e.off || DIDX[e.dt] !== i) continue;
+    if (!grupos().includes(e.grp || 'BVT')) continue;
+    if ((e.tcat || 'banco') !== cat) continue;
+    t += (e.cls === 'trava' ? -1 : 1) * e.val;
+  }
+  return t;
+}
+
+/* definição das linhas, na ordem da planilha */
+const RES_LINHAS = [
+  { k:'receita',   nome:'Receita',                         sinal:+1, auto:i => resReceita(i,false) },
+  { k:'estaleiro', nome:'Receita Estaleiro',               sinal:+1, auto:i => resReceita(i,true) },
+  { k:'antecip',   nome:'Antecipação de recebíveis',       sinal:+1, auto:i => resPorNome(['Antecipações Recebíveis'],'E',i) },
+  { k:'captacao',  nome:'Nova captação',                   sinal:+1, auto:i => resPorNome(['Captações'],'E',i) },
+  { k:'adiant',    nome:'Adiantamento entre grupos',       sinal:+1, auto:i => resPorNome(['Adiantamento Marlin','Adiantamento NVM'],'E',i) },
+  { k:'outrasent', nome:'Outras entradas',                 sinal:+1, auto:i => resPorNome(['Outras Entradas'],'E',i) },
+  { k:'dp',        nome:'DP · custos com pessoal',         sinal:-1, auto:i => resPorNome(['Custos Pessoais'],'S',i) },
+  { k:'cap',       nome:'CAP · fornecedores e câmbio',     sinal:-1, auto:i => resPorNome(
+        ['Fornecedores - Opex','Fornec. Opex Represados','Fornecedores - Capex','Fornec. Capex Represados','Câmbio Opex','Câmbio Capex'],'S',i) },
+  { k:'kagiro',    nome:'Dívida · Kagiro e antecipação',   sinal:-1, auto:i => resPorNome(['Dívida'],'S',i), drill:['S228','MS138'] },
+  { k:'imposto',   nome:'Imposto',                         sinal:-1, auto:i => resPorNome(['Impostos'],'S',i) },
+  { k:'debaut',    nome:'Débito automático',               sinal:-1, auto:i => resPorNome(['Débito Automático'],'S',i) },
+  { k:'corp',      nome:'Corporativo e despesas financeiras', sinal:-1, auto:i => resPorNome(['Corporativo'],'S',i) },
+  { k:'outrassai', nome:'Outras saídas',                   sinal:-1, auto:i => resPorNome(['Outras Saídas'],'S',i), drill:['S268','MS164'] },
+  { k:'travab',    nome:'Trava / destrava bancária',       sinal:+1, auto:i => resTravaDia(i,'banco') },
+  { k:'travag',    nome:'Trava / destrava gerencial',      sinal:+1, auto:i => resTravaDia(i,'ger') },
+  { k:'ajuste',    nome:'Ajuste',                          sinal:+1, auto:() => 0, manualOnly:true },
+];
+
+const resChave = i => `${S.grp}|${D.dates[i]}`;
+const resGet = i => (S.resumos || {})[resChave(i)] || null;
+function resSaldoInicialAuto(i){
+  const ant = i > 0 ? resGet(i-1) : null;
+  if (ant && ant.total != null) return ant.total;
+  return i > 0 ? F.livre[i-1] : F.ini[0];
+}
+function resValor(i, L){
+  const r = resGet(i);
+  const manual = r && r.linhas && r.linhas[L.k] && r.linhas[L.k].manual;
+  const auto = L.auto(i);
+  return { auto, manual: (manual === undefined || manual === null || manual === '') ? null : +manual,
+           usado: (manual === undefined || manual === null || manual === '') ? auto : +manual,
+           obs: (r && r.linhas && r.linhas[L.k] && r.linhas[L.k].obs) || '' };
+}
+function resCalcula(i){
+  const r = resGet(i);
+  const margem = r && r.margem != null ? +r.margem : RES.margem;
+  const siAuto = resSaldoInicialAuto(i);
+  const siMan = r && r.saldoIniManual != null && r.saldoIniManual !== '' ? +r.saldoIniManual : null;
+  const si = (siMan == null ? siAuto : siMan) - margem;
+  let ent = 0, sai = 0;
+  RES_LINHAS.forEach(L => {
+    const v = resValor(i, L).usado;
+    if (L.sinal > 0) ent += v; else sai += v;
+  });
+  return { siAuto, siMan, margem, si, ent, sai, total: si + ent - sai };
+}
+
+/* ---------- interface ---------- */
+function renderResumo(){
+  if (RES.dia == null || RES.dia >= N) RES.dia = TI;
+  const i = RES.dia, ds = D.dates[i];
+  const wk = WEEKS[WOF[i]], dias = wk.idx;
+  const r = resGet(i), c = resCalcula(i);
+
+  $('rsData').value = ds;
+  $('rsData').min = D.dates[0]; $('rsData').max = D.dates[N-1];
+  $('rsMargem').value = c.margem;
+  $('rsIdent').innerHTML = `
+    <span class="bdg ${r ? (r.status === 'final' ? 'ok' : 'at') : 'r'}">${
+      r ? (r.status === 'final' ? 'finalizado' : 'rascunho') : 'não iniciado'}</span>
+    <span class="mut">${grpNome()} · ${dow(ds)} ${dBRfull(ds)} · ${i <= LRI ? 'dia realizado' : 'projeção'}</span>
+    ${r ? `<span class="mut">· criado por ${esc(r.criadoPor || '—')} em ${new Date(r.criadoEm).toLocaleString('pt-BR')}${
+      r.alteradoEm ? ` · alterado por ${esc(r.alteradoPor || '—')} em ${new Date(r.alteradoEm).toLocaleString('pt-BR')}` : ''}</span>` : ''}`;
+
+  $('rsKpis').innerHTML =
+    kpi('Saldo inicial considerado', c.si, c.margem ? `caixa livre menos margem de ${fMil(c.margem)}` : 'caixa livre do dia anterior', {hero:true}) +
+    kpi('Total de entradas', c.ent, '') +
+    kpi('Total de saídas', -c.sai, '') +
+    kpi('Saldo final projetado', c.total, c.total < 0 ? 'atenção: saldo negativo' : '', {warn: c.total < 0});
+
+  /* tabela: linhas x dias da semana, coluna do dia selecionado editável */
+  let h = `<thead><tr><th>Item</th>${dias.map(k =>
+    `<th class="n ${k===i?'':''}">${k===i?'<b>':''}${dBR(D.dates[k])}${k===i?'</b>':''}</th>`).join('')}<th>Observação</th></tr></thead><tbody>`;
+
+  h += `<tr class="tot"><td>Saldo inicial</td>${dias.map(k => {
+      const cc = resCalcula(k);
+      return k === i
+        ? `<td class="n"><input class="just" id="rsSi" style="text-align:right" value="${c.siMan == null ? '' : c.siMan}" placeholder="${fMil(c.siAuto)}"></td>`
+        : `<td class="n">${fMil(cc.si)}</td>`; }).join('')}<td></td></tr>`;
+
+  RES_LINHAS.forEach(L => {
+    const v = resValor(i, L);
+    const temDrill = L.drill && L.drill.some(id => NODE[id]);
+    h += `<tr class="${temDrill?'clik':''}" ${temDrill?`data-rs="${L.k}"`:''}>
+      <td>${temDrill?`<span class="tg b">${RES.aberto.has(L.k)?'▾':'▸'}</span>`:'<span class="tg"></span>'}${esc(L.nome)}</td>`;
+    dias.forEach(k => {
+      if (k === i){
+        h += `<td class="n"><input class="just rsv" data-k="${L.k}" style="text-align:right"
+                value="${v.manual == null ? '' : v.manual}" placeholder="${fMil(v.auto * L.sinal)}"></td>`;
+      } else {
+        const vv = resValor(k, L);
+        h += `<td class="n ${vv.manual!=null?'man':''}" style="${vv.manual!=null?'font-weight:600':''}">${fMil(vv.usado * L.sinal)}</td>`;
+      }
+    });
+    h += `<td><input class="just rso" data-k="${L.k}" value="${esc(v.obs)}" placeholder="—"></td></tr>`;
+    if (temDrill && RES.aberto.has(L.k)) h += resDrillHTML(L, dias, i);
+  });
+
+  h += `<tr class="tot"><td><b>Total · saldo final projetado</b></td>${dias.map(k => {
+      const cc = resCalcula(k);
+      return `<td class="n ${cls(cc.total)}"><b>${fMil(cc.total)}</b></td>`; }).join('')}<td></td></tr></tbody>`;
+  $('rsTabela').innerHTML = h;
+
+  $('rsSi').onchange = e => { resEditar(i, o => { o.saldoIniManual = e.target.value.trim(); }); };
+  $('rsTabela').querySelectorAll('.rsv').forEach(el => el.onchange = () => {
+    resEditar(i, o => { (o.linhas[el.dataset.k] = o.linhas[el.dataset.k] || {}).manual = el.value.trim(); }); });
+  $('rsTabela').querySelectorAll('.rso').forEach(el => el.onchange = () => {
+    resEditar(i, o => { (o.linhas[el.dataset.k] = o.linhas[el.dataset.k] || {}).obs = el.value; }); });
+  $('rsTabela').querySelectorAll('[data-rs]').forEach(tr => tr.onclick = ev => {
+    if (ev.target.tagName === 'INPUT') return;
+    const k = tr.dataset.rs;
+    RES.aberto.has(k) ? RES.aberto.delete(k) : RES.aberto.add(k);
+    renderResumo(); });
+
+  const salvos = Object.values(S.resumos || {}).sort((a,b) => (b.dt||'').localeCompare(a.dt||''));
+  $('rsHistN').textContent = salvos.length ? `${salvos.length} salvo(s)` : 'nenhum salvo';
+  $('rsHist').innerHTML = salvos.length
+    ? `<thead><tr><th>Data</th><th>Grupo</th><th>Situação</th><th class="n">Saldo final</th><th>Responsável</th><th></th></tr></thead><tbody>` +
+      salvos.slice(0,20).map(x => `<tr><td><b>${dBRfull(x.dt)}</b></td><td>${GRUPOS[x.grp]||x.grp}</td>
+        <td><span class="bdg ${x.status==='final'?'ok':'at'}">${x.status==='final'?'finalizado':'rascunho'}</span></td>
+        <td class="n ${cls(x.total)}">${fMil(x.total||0)}</td>
+        <td>${esc(x.alteradoPor||x.criadoPor||'—')}</td>
+        <td><button class="btn sec sm" data-abrir="${x.dt}|${x.grp}">Abrir</button></td></tr>`).join('') + '</tbody>'
+    : '<tbody><tr><td class="empty">Nenhum resumo salvo ainda.</td></tr></tbody>';
+  $('rsHist').querySelectorAll('[data-abrir]').forEach(b => b.onclick = () => {
+    const [dt, g] = b.dataset.abrir.split('|');
+    if (g !== S.grp){ S.grp = g; document.querySelectorAll('#grpSeg button').forEach(x => x.classList.toggle('on', x.dataset.g === g)); }
+    if (DIDX[dt] !== undefined) RES.dia = DIDX[dt];
+    render(); });
+}
+
+function resDrillHTML(L, dias, i){
+  let h = '';
+  const raizes = L.drill.filter(id => NODE[id] && grupos().includes(NODE[id].grp));
+  const anda = (id, nivel) => {
+    const kids = KIDS[id] || [];
+    kids.forEach(k => {
+      const soma = dias.map(d => nodeTot(k, d, d));
+      if (!soma.some(v => Math.abs(v) > .5) && !(KIDS[k]||[]).length) return;
+      h += `<tr class="tw-l${Math.min(nivel+1,3)}"><td><span class="tg"></span>${esc(NODE[k].nome)}</td>` +
+           dias.map((d,ix) => `<td class="n mut">${fMil(-soma[ix])}</td>`).join('') + '<td></td></tr>';
+      if (nivel < 3) anda(k, nivel + 1);
+    });
+  };
+  raizes.forEach(id => anda(id, 1));
+  return h || `<tr class="tw-l2"><td colspan="${dias.length+2}" class="mut">sem detalhe no período</td></tr>`;
+}
+
+function resEditar(i, fn){
+  S.resumos = S.resumos || {};
+  const ch = resChave(i);
+  let o = S.resumos[ch];
+  if (!o){
+    o = Object.assign({ dt: D.dates[i], grp: S.grp, status: 'rascunho', linhas: {},
+                        saldoIniManual: null, margem: RES.margem }, carimboCriacao());
+    S.resumos[ch] = o;
+  }
+  o.linhas = o.linhas || {};
+  fn(o);
+  carimboAlteracao(o);
+  o.total = resCalcula(i).total;
+  Store.set('fdc_resumos', S.resumos);
+  renderResumo();
+}
+function resEventos(){
+  $('rsData').onchange = () => {
+    const v = $('rsData').value;
+    if (DIDX[v] !== undefined) RES.dia = DIDX[v];
+    else { let k = 0; for (let j=0;j<N;j++) if (D.dates[j] <= v) k = j; RES.dia = k; }
+    renderResumo(); };
+  $('rsPrev').onclick = () => { RES.dia = Math.max(0, RES.dia - 1); renderResumo(); };
+  $('rsNext').onclick = () => { RES.dia = Math.min(N-1, RES.dia + 1); renderResumo(); };
+  $('rsHoje').onclick = () => { RES.dia = TI; renderResumo(); };
+  $('rsMargem').onchange = () => { RES.margem = +$('rsMargem').value || 0;
+    resEditar(RES.dia, o => { o.margem = RES.margem; }); };
+  $('rsRascunho').onclick = () => resEditar(RES.dia, o => { o.status = 'rascunho'; });
+  $('rsFinal').onclick = () => resEditar(RES.dia, o => { o.status = 'final'; });
+  $('rsNovo').onclick = () => {
+    if (resGet(RES.dia) && !confirm('Já existe um resumo nesta data. Recomeçar do zero?')) return;
+    S.resumos = S.resumos || {}; delete S.resumos[resChave(RES.dia)];
+    Store.set('fdc_resumos', S.resumos); renderResumo(); };
+  $('rsDuplicar').onclick = () => {
+    const base = resGet(RES.dia);
+    if (!base){ alert('Não há resumo nesta data para duplicar.'); return; }
+    const alvo = prompt('Duplicar para qual data? (AAAA-MM-DD)', D.dates[Math.min(N-1, RES.dia+1)]);
+    if (!alvo || DIDX[alvo] === undefined){ if (alvo) alert('Data fora dos dias úteis do fluxo.'); return; }
+    S.resumos[`${S.grp}|${alvo}`] = Object.assign({}, JSON.parse(JSON.stringify(base)),
+      { dt: alvo, status: 'rascunho' }, carimboCriacao());
+    Store.set('fdc_resumos', S.resumos);
+    RES.dia = DIDX[alvo]; renderResumo(); };
+  $('rsImprimir').onclick = () => window.print();
+}
+</script>
+
+<script>resEventos();</script>
 </body>
 </html>
