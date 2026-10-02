@@ -372,6 +372,7 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
   <button data-p="exec">Painel executivo</button>
   <button data-p="lanc">Lançamentos</button>
   <button data-p="sim">Simulação</button>
+  <button data-p="rec">Análise de receitas</button>
   <span class="navsp"></span>
   <span class="flag" id="navFlag"></span>
 </nav>
@@ -694,6 +695,73 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
           <div class="bd"><div id="sChart"></div></div>
         </div>
       </div>
+    </div>
+  </section>
+  <!-- ===================== ANALISE DE RECEITAS ===================== -->
+  <section class="page" id="p-rec">
+    <div class="filters">
+      <div class="fld"><label for="rcMes">Mês analisado</label><select id="rcMes"></select></div>
+      <div class="fld"><label for="rcSeg">Segmento</label><select id="rcSeg"></select></div>
+      <div class="fld"><label for="rcEmb">Embarcação</label><select id="rcEmb"></select></div>
+      <div class="fld"><label for="rcExibir">Comparar</label>
+        <select id="rcExibir">
+          <option value="tudo">Realizado + projetado</option>
+          <option value="real">Só realizado</option>
+          <option value="proj">Só projetado</option>
+        </select></div>
+      <div class="fld"><label for="rcJanela">Média histórica</label>
+        <select id="rcJanela">
+          <option value="3">Últimos 3 meses</option>
+          <option value="6">Últimos 6 meses</option>
+          <option value="12">Últimos 12 meses</option>
+          <option value="0">Todos os meses</option>
+        </select></div>
+      <div class="fld"><label for="rcLimiar">Alerta a partir de (%)</label><input type="number" id="rcLimiar" min="1" step="5"></div>
+      <div class="fld"><label>Escopo</label>
+        <label class="chk"><input type="checkbox" id="rcNaoOp"> Incluir captações e antecipações</label></div>
+      <button class="btn sec" id="rcHoje">Mês atual</button>
+      <button class="btn sec" id="rcLimpar">Limpar</button>
+    </div>
+
+    <div class="kpis" id="rcKpis"></div>
+
+    <div class="grid g23">
+      <div class="block">
+        <h3>Alertas de receita<span class="sub" id="rcAlertaN"></span></h3>
+        <div id="rcAlertas" style="max-height:430px;overflow:auto"></div>
+      </div>
+      <div class="block">
+        <h3>Duplicidades prováveis<span class="sub" id="rcDupN"></span></h3>
+        <div class="tw"><table id="rcDup"></table></div>
+        <div class="bd"><p class="hint" style="margin:0">Mesmo valor lançado mais de uma vez na mesma linha,
+          dentro de 10 dias úteis. Nem todo caso é erro — contrato de valor fixo repete por natureza.</p></div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Receita por segmento e embarcação<span class="sub">clique no segmento para abrir as embarcações</span></h3>
+      <div class="tw"><table class="tree" id="rcTabela"></table></div>
+    </div>
+
+    <div class="grid g2">
+      <div class="block">
+        <h3>Por segmento<span class="sub">média histórica x realizado x projetado</span></h3>
+        <div class="bd"><div id="rcG1"></div></div>
+      </div>
+      <div class="block">
+        <h3>Embarcações com maior desvio<span class="sub">as 12 maiores diferenças vs média</span></h3>
+        <div class="bd"><div id="rcG2"></div></div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h3>Evolução mensal<span class="sub">realizado, projetado e média histórica</span></h3>
+      <div class="bd"><div id="rcG3"></div></div>
+    </div>
+
+    <div class="block">
+      <h3>Semana a semana<span class="sub" id="rcG4sub"></span></h3>
+      <div class="bd"><div id="rcG4"></div></div>
     </div>
   </section>
 </main>
@@ -2122,6 +2190,7 @@ function render(){
   else if (S.page === 'exec') renderExec();
   else if (S.page === 'lanc') renderLanc();
   else if (S.page === 'sim') renderSim();
+  else if (S.page === 'rec') renderReceitas();
 }
 function pintarSync(e){
   const el = $('sbSync'); if (!el) return;
@@ -2667,5 +2736,297 @@ Versão congelada em ${new Date().toLocaleString('pt-BR')}.
   render();
 })();
 </script>
+<script>
+/* ===================== ANÁLISE DE RECEITAS ===================== */
+const RCV = { janela: 6, limiar: 30, piso: 300, naoOp: false,
+              mes: null, seg: '', emb: '', exibir: 'tudo', open: new Set() };
+
+/* --- universo de linhas de receita --- */
+function rcvSegmentos(){
+  const gs = grupos(), out = [];
+  D.nodes.forEach(n => {
+    if (!gs.includes(n.grp)) return;
+    if (n.cat === 'Receitas' && n.sub && !n.seg) out.push(n);
+    else if (RCV.naoOp && n.parent === ROOT[n.grp].E && n.kind === 'E'
+             && n.cat !== 'Receitas' && n.cat !== 'Descontos/Deduções') out.push(n);
+  });
+  return out.sort((a,b) => a.nome.localeCompare(b.nome,'pt-BR'));
+}
+const rcvEmbarcacoes = id => (KIDS[id] || []).filter(k => NODE[k].seg).map(k => NODE[k]);
+function rcvFiltrados(){
+  let segs = rcvSegmentos();
+  if (RCV.seg) segs = segs.filter(s => s.nome === RCV.seg);
+  return segs;
+}
+
+/* --- realizado x projetado dentro de um mês --- */
+function rcvParte(id, m){
+  const a = m.idx[0], b = m.idx[m.idx.length - 1];
+  const r = a <= LRI ? nodeTot(id, a, Math.min(b, LRI)) : 0;
+  const p = b > LRI ? nodeTot(id, Math.max(a, LRI + 1), b) : 0;
+  return { r, p, t: r + p };
+}
+function rcvValor(parte){
+  return RCV.exibir === 'real' ? parte.r : RCV.exibir === 'proj' ? parte.p : parte.t;
+}
+
+/* --- média dos meses realizados anteriores --- */
+const rcvMesesBase = mi => MONTHS.filter(m => m.i < mi && m.idx.length >= 15 && m.idx[m.idx.length-1] <= LRI);
+function rcvMedia(id, mi){
+  const cand = rcvMesesBase(mi);
+  const sel = RCV.janela > 0 ? cand.slice(-RCV.janela) : cand;
+  if (!sel.length) return { media: 0, n: 0 };
+  const v = sel.map(m => nodeTot(id, m.idx[0], m.idx[m.idx.length-1]));
+  return { media: v.reduce((s,x) => s + x, 0) / v.length, n: sel.length };
+}
+function rcvTendencia(id, mi){
+  const cand = rcvMesesBase(mi).slice(-6);
+  if (cand.length < 4) return { t: '–', d: 'histórico curto' };
+  const v = cand.map(m => nodeTot(id, m.idx[0], m.idx[m.idx.length-1]));
+  const meio = Math.floor(v.length / 2);
+  const ant = v.slice(0, meio).reduce((s,x)=>s+x,0) / meio;
+  const rec = v.slice(meio).reduce((s,x)=>s+x,0) / (v.length - meio);
+  if (!ant) return { t: '–', d: 'sem base' };
+  const r = (rec - ant) / Math.abs(ant);
+  if (r > .10) return { t: '▲ alta', d: `${(r*100).toFixed(0)}% nos meses recentes` };
+  if (r < -.10) return { t: '▼ queda', d: `${(r*100).toFixed(0)}% nos meses recentes` };
+  return { t: '► estável', d: 'variação abaixo de 10%' };
+}
+
+/* --- linha da tabela --- */
+function rcvLinha(n, mi){
+  const m = MONTHS[mi], parte = rcvParte(n.id, m), { media, n: nm } = rcvMedia(n.id, mi);
+  const val = rcvValor(parte);
+  const dif = val - media, rel = media ? dif / Math.abs(media) : 0;
+  const base = Math.abs(media) >= RCV.piso;
+  const alerta = base && Math.abs(rel) >= RCV.limiar / 100;
+  return { n, id: n.id, nome: n.nome, grp: n.grp, ...parte, val, media, nm, dif, rel, base, alerta,
+           acima: dif > 0, tend: rcvTendencia(n.id, mi) };
+}
+
+/* --- duplicidades prováveis --- */
+function rcvDuplicidades(mi){
+  const m = MONTHS[mi], a = m.idx[0], b = m.idx[m.idx.length-1], out = [];
+  rcvFiltrados().forEach(sg => {
+    const alvos = rcvEmbarcacoes(sg.id);
+    (alvos.length ? alvos.map(x => x.id) : [sg.id]).forEach(id => {
+      if (RCV.emb && NODE[id].seg !== RCV.emb && NODE[id].nome !== RCV.emb) return;
+      const s = ser(id), vistos = {};
+      for (let i = a; i <= b; i++){
+        const v = Math.round(s[i] * 100) / 100;
+        if (Math.abs(v) < 50) continue;
+        (vistos[v] = vistos[v] || []).push(i);
+      }
+      Object.keys(vistos).forEach(k => {
+        const dias = vistos[k];
+        if (dias.length < 2 || dias[dias.length-1] - dias[0] > 10) return;
+        out.push({ id, nome: pathOf(id), valor: +k, dias });
+      });
+    });
+  });
+  return out.sort((x,y) => Math.abs(y.valor * y.dias.length) - Math.abs(x.valor * x.dias.length)).slice(0, 8);
+}
+
+/* --- gráfico de barras agrupadas (2 ou 3 séries) --- */
+function bars3(el, o){
+  const w = 900, h = o.h || 270, ml = 64, mr = 12, mt = 12, mb = 48;
+  const iw = w - ml - mr, ih = h - mt - mb, n = o.labels.length || 1;
+  const todos = o.series.flatMap(s => s.vals);
+  let [lo, hi] = niceScale(Math.min(...todos, 0), Math.max(...todos, 0));
+  const ns = o.series.length, bw = Math.min(22, iw / n / (ns + 1));
+  const X = i => ml + iw * (i + .5) / n;
+  const Y = v => mt + ih - (v - lo) / (hi - lo) * ih;
+  let g = '';
+  for (let t = 0; t <= 4; t++){
+    const v = lo + (hi - lo) * t / 4, y = Y(v);
+    g += `<line x1="${ml}" x2="${w-mr}" y1="${y}" y2="${y}" stroke="${CH.line}"/>`
+      +  `<text x="${ml-8}" y="${y+4}" text-anchor="end" font-size="11" fill="${CH.ink2}">${fMil(v)}</text>`;
+  }
+  g += `<line x1="${ml}" x2="${w-mr}" y1="${Y(0)}" y2="${Y(0)}" stroke="${CH.ink2}"/>`;
+  o.series.forEach((s, k) => s.vals.forEach((v, i) => {
+    const x = X(i) - (ns * bw) / 2 + k * bw, y0 = Y(0), y = Y(v);
+    g += `<rect x="${x}" y="${Math.min(y,y0)}" width="${bw-2}" height="${Math.max(1,Math.abs(y0-y))}" fill="${s.cor}" rx="1"/>`;
+  }));
+  o.labels.forEach((l, i) => {
+    const txt = l.length > 16 ? l.slice(0, 15) + '…' : l;
+    g += `<text x="${X(i)}" y="${h-mb+16}" text-anchor="end" font-size="10.5" fill="${CH.ink2}"
+           transform="rotate(-35 ${X(i)} ${h-mb+16})">${esc(txt)}</text>`;
+  });
+  el.innerHTML = svgWrap(w, h, g) +
+    `<div class="lg">${o.series.map(s => `<span><i style="background:${s.cor}"></i>${s.nome}</span>`).join('')}</div>`;
+}
+
+/* ===================== render ===================== */
+function renderReceitas(){
+  if (RCV.mes == null || RCV.mes >= MONTHS.length) RCV.mes = MOF[TI];
+  const mi = RCV.mes, m = MONTHS[mi];
+
+  /* selects */
+  const segs = rcvSegmentos();
+  if ($('rcMes').options.length !== MONTHS.length)
+    $('rcMes').innerHTML = MONTHS.map(x => `<option value="${x.i}">${mBR(x.key)}</option>`).join('');
+  $('rcMes').value = mi;
+  fillSel($('rcSeg'), [...new Set(segs.map(s => s.nome))], 'Todos os segmentos', RCV.seg);
+  const embs = (RCV.seg ? segs.filter(s => s.nome === RCV.seg) : segs)
+    .flatMap(s => rcvEmbarcacoes(s.id)).map(e => e.seg || e.nome);
+  fillSel($('rcEmb'), [...new Set(embs)].sort((a,b)=>a.localeCompare(b,'pt-BR')), 'Todas as embarcações', RCV.emb);
+  $('rcJanela').value = String(RCV.janela);
+  $('rcLimiar').value = RCV.limiar;
+  $('rcExibir').value = RCV.exibir;
+  $('rcNaoOp').checked = RCV.naoOp;
+
+  /* linhas */
+  let linhas = rcvFiltrados().map(s => rcvLinha(s, mi));
+  if (RCV.emb){
+    linhas = rcvFiltrados().flatMap(s => rcvEmbarcacoes(s.id))
+      .filter(e => (e.seg || e.nome) === RCV.emb).map(e => rcvLinha(e, mi));
+  }
+
+  /* KPIs consolidados */
+  const tot = linhas.reduce((a, l) => ({ r: a.r + l.r, p: a.p + l.p, t: a.t + l.t,
+    media: a.media + l.media, val: a.val + l.val }), { r:0, p:0, t:0, media:0, val:0 });
+  const dif = tot.val - tot.media, rel = tot.media ? dif / Math.abs(tot.media) : 0;
+  const nm = linhas.length ? Math.max(...linhas.map(l => l.nm)) : 0;
+  const tendGeral = linhas.length ? rcvTendencia(linhas[0].id, mi) : { t:'–', d:'' };
+  $('rcKpis').innerHTML =
+    kpi('Média histórica mensal', tot.media, `${nm} ${nm === 1 ? 'mês' : 'meses'} realizados`, {hero:true}) +
+    kpi('Realizado no mês', tot.r, mBR(m.key)) +
+    kpi('Projetado no mês', tot.p, 'resto do mês') +
+    kpi('Total do mês', tot.t, RCV.exibir !== 'tudo' ? 'KPIs seguem o filtro' : '') +
+    kpi('Diferença vs média', dif, dif >= 0 ? 'acima do histórico' : 'abaixo do histórico', {warn: Math.abs(rel) >= RCV.limiar/100}) +
+    `<div class="kpi"><div class="k">Variação percentual</div>
+       <div class="v ${cls(dif)}">${rel >= 0 ? '+' : ''}${(rel*100).toFixed(1)}<span class="u">%</span></div>
+       <div class="d">limiar de ${RCV.limiar}%</div></div>` +
+    `<div class="kpi"><div class="k">Tendência da receita</div>
+       <div class="v" style="font-size:22px">${tendGeral.t}</div><div class="d">${esc(tendGeral.d)}</div></div>`;
+
+  /* alertas */
+  const alertas = linhas.filter(l => l.alerta).sort((a,b) => Math.abs(b.dif) - Math.abs(a.dif));
+  $('rcAlertaN').textContent = alertas.length ? `${alertas.length} fora do padrão` : 'nada fora do padrão';
+  $('rcAlertas').innerHTML = alertas.length ? alertas.map(l => {
+    const sobe = l.acima;
+    const texto = sobe
+      ? 'Receita acima da média histórica. Verificar possível duplicidade, lançamento incorreto ou aumento excepcional da receita.'
+      : 'Receita abaixo da média histórica. Verificar atraso de faturamento, lançamento faltante, perda de contrato ou parada da embarcação.';
+    return `<div class="alert ${sobe ? 'm' : 'h'}">
+      <span class="w"><b>${esc(l.nome)}${S.grp==='AMBOS'?' · '+GRUPOS[l.grp]:''}</b>
+        <div class="d">Média histórica ${fMil(l.media)} · ${RCV.exibir==='proj'?'projeção':'mês'} ${fMil(l.val)} · variação
+          <b style="color:${sobe?'var(--warn)':'var(--red)'}">${l.rel>=0?'+':''}${(l.rel*100).toFixed(1)}%</b></div>
+        <div class="d">${texto}</div></span>
+      <span class="vl ${cls(l.dif)}">${l.dif>0?'+':''}${fMil(l.dif)}</span></div>`;
+  }).join('') : '<div class="empty">Nenhuma linha fora do limiar com os parâmetros atuais.</div>';
+
+  /* duplicidades */
+  const dups = rcvDuplicidades(mi);
+  $('rcDupN').textContent = dups.length ? `${dups.length} caso(s)` : 'nenhum caso';
+  $('rcDup').innerHTML = dups.length
+    ? `<thead><tr><th>Linha</th><th>Valor repetido</th><th>Dias</th><th class="n">Soma</th></tr></thead><tbody>` +
+      dups.map(d => `<tr><td>${esc(d.nome)}</td><td class="n">${fMil(d.valor)}</td>
+        <td>${d.dias.map(i => dBR(D.dates[i])).join(' · ')}</td>
+        <td class="n">${fMil(d.valor * d.dias.length)}</td></tr>`).join('') + '</tbody>'
+    : `<tbody><tr><td class="empty">Nenhum valor idêntico repetido na mesma linha dentro de 10 dias úteis.</td></tr></tbody>`;
+
+  /* tabela segmento → embarcação */
+  let html = `<thead><tr><th>Segmento · embarcação</th><th class="n">Realizado</th><th class="n">Projetado</th>
+    <th class="n">Média histórica</th><th class="n">Diferença R$</th><th class="n">Variação %</th><th>Tendência</th><th>Status</th></tr></thead><tbody>`;
+  const sel = RCV.emb ? [] : rcvFiltrados();
+  const status = l => !l.base ? '<span class="bdg r">base pequena</span>'
+    : l.alerta ? `<span class="bdg ${l.acima?'at':'risk'}">${l.acima?'acima do histórico':'abaixo do histórico'}</span>`
+    : '<span class="bdg ok">dentro do padrão</span>';
+  const linhaHtml = (l, nivel) => `<tr class="${nivel?'tw-l2':'tw-l1 clik'}" ${nivel?'':`data-rc="${l.id}"`}>
+      <td>${nivel?'<span class="tg"></span>':`<span class="tg b">${RCV.open.has(l.id)?'▾':'▸'}</span>`}${esc(l.nome)}</td>
+      <td class="n">${fMil(l.r)}</td><td class="n">${fMil(l.p)}</td>
+      <td class="n mut">${fMil(l.media)}<div style="font-size:11px">${l.nm}m</div></td>
+      <td class="n ${cls(l.dif)}">${l.dif>0?'+':''}${fMil(l.dif)}</td>
+      <td class="n ${cls(l.dif)}">${l.media?((l.rel>=0?'+':'')+(l.rel*100).toFixed(1)+'%'):'—'}</td>
+      <td style="font-size:12px">${l.tend.t}</td><td>${status(l)}</td></tr>`;
+  if (RCV.emb){
+    linhas.forEach(l => html += linhaHtml(l, 1));
+  } else if (!sel.length){
+    html += '<tr><td colspan="8" class="empty">Nenhuma linha de receita no filtro atual.</td></tr>';
+  } else {
+    sel.forEach(s => {
+      const l = rcvLinha(s, mi);
+      html += linhaHtml(l, 0);
+      if (RCV.open.has(s.id)) rcvEmbarcacoes(s.id).map(e => rcvLinha(e, mi))
+        .filter(x => Math.abs(x.t) > .5 || Math.abs(x.media) > .5)
+        .sort((a,b) => Math.abs(b.dif) - Math.abs(a.dif))
+        .forEach(x => html += linhaHtml(x, 1));
+    });
+    const T = sel.map(s => rcvLinha(s, mi)).reduce((a,l) => ({ r:a.r+l.r, p:a.p+l.p, media:a.media+l.media, dif:a.dif+l.dif }), {r:0,p:0,media:0,dif:0});
+    html += `<tr class="tot"><td>Total</td><td class="n">${fMil(T.r)}</td><td class="n">${fMil(T.p)}</td>
+      <td class="n">${fMil(T.media)}</td><td class="n ${cls(T.dif)}">${T.dif>0?'+':''}${fMil(T.dif)}</td>
+      <td class="n">${T.media?((T.dif/Math.abs(T.media)*100).toFixed(1)+'%'):'—'}</td><td></td><td></td></tr>`;
+  }
+  $('rcTabela').innerHTML = html + '</tbody>';
+  $('rcTabela').querySelectorAll('[data-rc]').forEach(tr => tr.onclick = () => {
+    const id = tr.dataset.rc;
+    RCV.open.has(id) ? RCV.open.delete(id) : RCV.open.add(id);
+    renderReceitas();
+  });
+
+  /* gráfico 1 — por segmento */
+  const porSeg = rcvFiltrados().map(s => rcvLinha(s, mi)).filter(l => Math.abs(l.t) > .5 || Math.abs(l.media) > .5);
+  bars3($('rcG1'), { h: 290, labels: porSeg.map(l => l.nome),
+    series: [ { nome:'Média histórica', cor: CH.grey, vals: porSeg.map(l=>l.media) },
+              { nome:'Realizado',       cor: CH.green, vals: porSeg.map(l=>l.r) },
+              { nome:'Projetado',       cor: CH.blue,  vals: porSeg.map(l=>l.p) } ] });
+
+  /* gráfico 2 — embarcações com maior desvio */
+  const porEmb = rcvFiltrados().flatMap(s => rcvEmbarcacoes(s.id)).map(e => rcvLinha(e, mi))
+    .filter(l => Math.abs(l.media) >= RCV.piso || Math.abs(l.t) >= RCV.piso)
+    .sort((a,b) => Math.abs(b.dif) - Math.abs(a.dif)).slice(0, 12);
+  bars3($('rcG2'), { h: 290, labels: porEmb.map(l => l.nome),
+    series: [ { nome:'Média histórica', cor: CH.grey, vals: porEmb.map(l=>l.media) },
+              { nome:'Mês analisado',   cor: CH.green, vals: porEmb.map(l=>l.t) } ] });
+
+  /* gráfico 3 — evolução mensal */
+  const serieMes = MONTHS.filter(x => x.idx.length >= 10);
+  const somaMes = (x, parte) => rcvFiltrados().reduce((s, sg) => s + rcvParte(sg.id, x)[parte], 0);
+  const mediaNoMes = x => rcvFiltrados().reduce((s, sg) => s + rcvMedia(sg.id, x.i).media, 0);
+  lineChart($('rcG3'), { h: 280, labels: serieMes.map(x => mBR(x.key)),
+    series: [ { vals: serieMes.map(x => somaMes(x,'r')), color: CH.green, area: true },
+              { vals: serieMes.map(x => somaMes(x,'p')), color: CH.blue },
+              { vals: serieMes.map(x => mediaNoMes(x)),  color: CH.grey, dash: '5 4', w: 1.8 } ],
+    mark: serieMes.findIndex(x => x.i === MOF[TI]),
+    legend: `<div class="lg"><span><i style="background:${CH.green}"></i>Realizado</span>
+      <span><i style="background:${CH.blue}"></i>Projetado</span>
+      <span><i style="background:${CH.grey}"></i>Média histórica</span></div>` });
+
+  /* gráfico 4 — semanas do mês atual x mês anterior */
+  const semanasDo = x => [...new Set(x.idx.map(i => WOF[i]))].map(wi => WEEKS[wi]);
+  const semAtual = semanasDo(m), semAnt = mi > 0 ? semanasDo(MONTHS[mi-1]) : [];
+  const somaSem = w => rcvFiltrados().reduce((s, sg) =>
+    s + nodeTot(sg.id, Math.max(w.idx[0], 0), w.idx[w.idx.length-1]), 0);
+  const nSem = Math.max(semAtual.length, semAnt.length);
+  bars3($('rcG4'), { h: 260,
+    labels: Array.from({length: nSem}, (_, k) => `${k+1}ª semana`),
+    series: [ { nome: mi > 0 ? mBR(MONTHS[mi-1].key) : 'mês anterior', cor: CH.grey,
+                vals: Array.from({length: nSem}, (_, k) => semAnt[k] ? somaSem(semAnt[k]) : 0) },
+              { nome: mBR(m.key), cor: CH.green,
+                vals: Array.from({length: nSem}, (_, k) => semAtual[k] ? somaSem(semAtual[k]) : 0) } ] });
+  $('rcG4sub').textContent = mi > 0
+    ? `${mBR(m.key)} contra ${mBR(MONTHS[mi-1].key)} · semanas na ordem em que caem no mês`
+    : 'sem mês anterior na base';
+}
+
+/* ===================== eventos ===================== */
+function rcvEventos(){
+  $('rcMes').onchange = () => { RCV.mes = +$('rcMes').value; renderReceitas(); };
+  $('rcSeg').onchange = () => { RCV.seg = $('rcSeg').value; RCV.emb = ''; renderReceitas(); };
+  $('rcEmb').onchange = () => { RCV.emb = $('rcEmb').value; renderReceitas(); };
+  $('rcJanela').onchange = () => { RCV.janela = +$('rcJanela').value; renderReceitas(); };
+  $('rcLimiar').onchange = () => { RCV.limiar = Math.max(1, +$('rcLimiar').value || 30); renderReceitas(); };
+  $('rcExibir').onchange = () => { RCV.exibir = $('rcExibir').value; renderReceitas(); };
+  $('rcNaoOp').onchange = () => { RCV.naoOp = $('rcNaoOp').checked; RCV.seg = ''; RCV.emb = ''; renderReceitas(); };
+  $('rcHoje').onclick = () => { RCV.mes = MOF[TI]; renderReceitas(); };
+  $('rcLimpar').onclick = () => {
+    Object.assign(RCV, { janela: 6, limiar: 30, naoOp: false, seg: '', emb: '', exibir: 'tudo', mes: MOF[TI] });
+    renderReceitas();
+  };
+}
+</script>
+
+<script>rcvEventos();</script>
 </body>
 </html>
