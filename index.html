@@ -3551,9 +3551,9 @@ const RES_LINHAS = [
 
 const resChave = i => `${S.grp}|${D.dates[i]}`;
 const resGet = i => (S.resumos || {})[resChave(i)] || null;
+/* O saldo inicial vem sempre do ECO: caixa livre do dia anterior.
+   Nunca encadeia do Total do resumo anterior — o resumo não alimenta a si mesmo. */
 function resSaldoInicialAuto(i){
-  const ant = i > 0 ? resGet(i-1) : null;
-  if (ant && ant.total != null) return ant.total;
   return i > 0 ? F.livre[i-1] : F.ini[0];
 }
 function resValor(i, L){
@@ -3601,29 +3601,29 @@ function renderResumo(){
     kpi('Total de saídas', -c.sai, '') +
     kpi('Saldo final projetado', c.total, c.total < 0 ? 'atenção: saldo negativo' : '', {warn: c.total < 0});
 
-  /* tabela: linhas x dias da semana, coluna do dia selecionado editável */
-  let h = `<thead><tr><th>Item</th>${dias.map(k =>
-    `<th class="n ${k===i?'':''}">${k===i?'<b>':''}${dBR(D.dates[k])}${k===i?'</b>':''}</th>`).join('')}<th>Observação</th></tr></thead><tbody>`;
+  /* tabela: todas as colunas da semana editáveis, com o valor do ECO como sombra */
+  let h = `<thead><tr><th>Item</th>${dias.map(k => {
+      const rk = resGet(k);
+      return `<th class="n">${k === i ? '<b>' : ''}${dBR(D.dates[k])}${k === i ? '</b>' : ''}
+        <div style="font-weight:400;font-size:10px;color:var(--ink3)">${dow(D.dates[k])}${
+          rk ? ' · ' + (rk.status === 'final' ? 'final' : 'rascunho') : ''}</div></th>`;
+    }).join('')}<th>Observação do dia ${dBR(ds)}</th></tr></thead><tbody>`;
 
   h += `<tr class="tot"><td>Saldo inicial</td>${dias.map(k => {
       const cc = resCalcula(k);
-      return k === i
-        ? `<td class="n"><input class="just" id="rsSi" style="text-align:right" value="${c.siMan == null ? '' : c.siMan}" placeholder="${fMil(c.siAuto)}"></td>`
-        : `<td class="n">${fMil(cc.si)}</td>`; }).join('')}<td></td></tr>`;
+      return `<td class="n"><input class="just rssi" data-i="${k}" style="text-align:right"
+        value="${cc.siMan == null ? '' : cc.siMan}" placeholder="${fMil(cc.siAuto)}"></td>`;
+    }).join('')}<td class="mut" style="font-size:11px">caixa livre do dia anterior, vindo do ECO</td></tr>`;
 
   RES_LINHAS.forEach(L => {
     const v = resValor(i, L);
     const temDrill = L.drill && L.drill.some(id => NODE[id]);
-    h += `<tr class="${temDrill?'clik':''}" ${temDrill?`data-rs="${L.k}"`:''}>
-      <td>${temDrill?`<span class="tg b">${RES.aberto.has(L.k)?'▾':'▸'}</span>`:'<span class="tg"></span>'}${esc(L.nome)}</td>`;
+    h += `<tr class="${temDrill ? 'clik' : ''}" ${temDrill ? `data-rs="${L.k}"` : ''}>
+      <td>${temDrill ? `<span class="tg b">${RES.aberto.has(L.k) ? '▾' : '▸'}</span>` : '<span class="tg"></span>'}${esc(L.nome)}</td>`;
     dias.forEach(k => {
-      if (k === i){
-        h += `<td class="n"><input class="just rsv" data-k="${L.k}" style="text-align:right"
-                value="${v.manual == null ? '' : v.manual}" placeholder="${fMil(v.auto * L.sinal)}"></td>`;
-      } else {
-        const vv = resValor(k, L);
-        h += `<td class="n ${vv.manual!=null?'man':''}" style="${vv.manual!=null?'font-weight:600':''}">${fMil(vv.usado * L.sinal)}</td>`;
-      }
+      const vv = resValor(k, L);
+      h += `<td class="n"><input class="just rsv" data-k="${L.k}" data-i="${k}" style="text-align:right"
+              value="${vv.manual == null ? '' : vv.manual}" placeholder="${fMil(vv.auto * L.sinal)}"></td>`;
     });
     h += `<td><input class="just rso" data-k="${L.k}" value="${esc(v.obs)}" placeholder="—"></td></tr>`;
     if (temDrill && RES.aberto.has(L.k)) h += resDrillHTML(L, dias, i);
@@ -3631,12 +3631,14 @@ function renderResumo(){
 
   h += `<tr class="tot"><td><b>Total · saldo final projetado</b></td>${dias.map(k => {
       const cc = resCalcula(k);
-      return `<td class="n ${cls(cc.total)}"><b>${fMil(cc.total)}</b></td>`; }).join('')}<td></td></tr></tbody>`;
+      return `<td class="n ${cls(cc.total)}"><b>${fMil(cc.total)}</b></td>`;
+    }).join('')}<td></td></tr></tbody>`;
   $('rsTabela').innerHTML = h;
 
-  $('rsSi').onchange = e => { resEditar(i, o => { o.saldoIniManual = e.target.value.trim(); }); };
+  $('rsTabela').querySelectorAll('.rssi').forEach(el => el.onchange = () => {
+    resEditar(+el.dataset.i, o => { o.saldoIniManual = el.value.trim(); }); });
   $('rsTabela').querySelectorAll('.rsv').forEach(el => el.onchange = () => {
-    resEditar(i, o => { (o.linhas[el.dataset.k] = o.linhas[el.dataset.k] || {}).manual = el.value.trim(); }); });
+    resEditar(+el.dataset.i, o => { (o.linhas[el.dataset.k] = o.linhas[el.dataset.k] || {}).manual = el.value.trim(); }); });
   $('rsTabela').querySelectorAll('.rso').forEach(el => el.onchange = () => {
     resEditar(i, o => { (o.linhas[el.dataset.k] = o.linhas[el.dataset.k] || {}).obs = el.value; }); });
   $('rsTabela').querySelectorAll('[data-rs]').forEach(tr => tr.onclick = ev => {
