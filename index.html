@@ -158,6 +158,39 @@ tr.tot td{font-weight:600;background:var(--tab-hover);border-top:1px solid var(-
 .tg{display:inline-flex;width:17px;color:var(--ink3);font-size:10px}
 .tg.b{cursor:pointer}
 
+/* ---------- comparativo: conteúdo à esquerda, alertas fixos à direita ---------- */
+.cp-grid{display:grid;grid-template-columns:minmax(0,1fr) 336px;gap:20px;align-items:start}
+.cp-rail{position:sticky;top:132px}
+.cp-als{max-height:min(68vh,780px);overflow-y:auto;padding:0 14px 16px}
+@media(max-width:1240px){
+  .cp-grid{grid-template-columns:1fr}
+  .cp-rail{position:static}
+  .cp-als{max-height:none}
+}
+.cp-al{display:block;width:100%;text-align:left;position:relative;cursor:pointer;
+  background:var(--field-bg);border:1px solid var(--line);border-radius:var(--r-sm);
+  padding:10px 12px 10px 15px;margin-bottom:8px;transition:border-color .13s,box-shadow .13s,background .13s}
+.cp-al:hover{border-color:var(--ink3);box-shadow:var(--sh)}
+.cp-al.on{border-color:var(--amber);background:var(--amber-lt)}
+.cp-al:before{content:'';position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:0 3px 3px 0}
+.cp-al.alta:before{background:var(--red)}
+.cp-al.media:before{background:var(--warn)}
+.cp-al.baixa:before{background:var(--blue)}
+.cp-al .t{font-size:12.5px;font-weight:600;color:var(--ink);line-height:1.3}
+.cp-al .d{font-size:11px;color:var(--ink2);margin-top:3px;line-height:1.35}
+.cp-al .v{font-family:var(--num);font-size:14px;font-weight:600;margin-top:5px;display:block}
+.cp-al .v.pos{color:var(--pos)} .cp-al .v.neg{color:var(--red)}
+.cp-alnone{padding:18px 4px 22px;text-align:center;color:var(--ink3);font-size:12.5px}
+#cpDias td:first-child,#cpSem td:first-child,#cpDias th:first-child,#cpSem th:first-child{white-space:nowrap}
+/* muitas colunas: aperta o espaçamento para caber sem rolagem lateral */
+#cpSem td,#cpDias td{padding:10px 9px;font-size:13px}
+#cpSem th,#cpDias th{padding:10px 9px;font-size:10.5px;letter-spacing:.03em}
+#cpSem td:first-child,#cpDias td:first-child{padding-left:16px}
+#cpSem th.grp,#cpDias th.grp{text-align:center;border-bottom:1px solid var(--line-soft);
+  color:var(--ink2);font-weight:600;padding-bottom:4px}
+#cpSem th.s2,#cpDias th.s2{text-transform:none;letter-spacing:0;font-size:10.5px;padding-top:4px}
+#cpSem thead tr:first-child th[rowspan],#cpDias thead tr:first-child th[rowspan]{vertical-align:bottom}
+
 /* ---------- badges ---------- */
 .bdg{display:inline-block;font-size:10.5px;font-weight:600;padding:2px 9px;border-radius:999px;vertical-align:1px}
 .bdg.eko{background:var(--amber-lt);color:var(--green-md);background:rgba(0,105,74,.10)}
@@ -903,6 +936,8 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
       <div class="filters">
         <div class="fld"><label for="cpDe">De</label><input type="date" id="cpDe" class="inp"></div>
         <div class="fld"><label for="cpAte">Até</label><input type="date" id="cpAte" class="inp"></div>
+        <div class="fld"><label for="cpLim">Alerta de caixa livre abaixo de (R$ mil)</label>
+          <input type="number" id="cpLim" class="inp" step="500" style="width:150px"></div>
         <div class="fld"><label>Relatório</label>
           <button class="btn sec" id="cpXls">Baixar em Excel</button></div>
       </div>
@@ -910,33 +945,46 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
       <div class="kpis" id="cpKpis"></div>
     </div>
 
-    <div class="block">
-      <h3>Caixa final nas duas posições<span class="sub">linha cinza pontilhada = posição anterior · linha cheia = posição atual</span></h3>
-      <div class="bd"><div id="cpGraf"></div></div>
-    </div>
-
-    <div class="block">
-      <h3>Linhas<span class="sub" id="cpLinhasN"></span>
-        <span class="sp"></span>
-        <span class="seg" id="cpSoSeg">
-          <button data-s="mud" class="on">Só o que mudou</button><button data-s="tudo">Tudo</button>
-        </span>
-        <button class="btn sec sm" id="cpAbrir">Expandir tudo</button>
-        <button class="btn sec sm" id="cpFechar">Recolher</button>
-      </h3>
-      <div class="filters">
-        <div class="fld" style="flex:1;min-width:260px"><label for="cpBusca">Pesquisar linha</label>
-          <input id="cpBusca" class="inp" placeholder="ex.: offshore, dívida, estaleiro, pinarello"></div>
+    <div class="cp-grid">
+      <div class="cp-main">
+        <div class="block">
+          <h3>
+            <span class="seg" id="cpVista">
+              <button data-v="sem" class="on">Semanas</button><button data-v="dias">Dias</button><button data-v="linhas">Linhas</button>
+            </span>
+            <span class="sub" id="cpVistaN"></span>
+            <span class="sp"></span>
+            <span id="cpCtlLinhas" style="display:none;gap:10px;align-items:center">
+              <span class="seg" id="cpSoSeg">
+                <button data-s="mud" class="on">Só o que mudou</button><button data-s="tudo">Tudo</button>
+              </span>
+              <button class="btn sec sm" id="cpAbrir">Expandir tudo</button>
+              <button class="btn sec sm" id="cpFechar">Recolher tudo</button>
+            </span>
+          </h3>
+          <div class="filters" id="cpFldBusca" style="display:none">
+            <div class="fld" style="flex:1;min-width:240px"><label for="cpBusca">Pesquisar linha</label>
+              <input id="cpBusca" class="inp" placeholder="ex.: offshore, dívida, estaleiro, pinarello"></div>
+          </div>
+          <div id="cpAlvo"></div>
+          <div class="tw" id="cpWrapSem"><table id="cpSem"></table></div>
+          <div class="tw" id="cpWrapDias" style="display:none"><table id="cpDias"></table></div>
+          <div class="tw" id="cpWrapLinhas" style="display:none"><table class="tree" id="cpLinhas"></table></div>
+          <div class="bd"><p class="hint" id="cpDica" style="margin:0"></p></div>
+        </div>
       </div>
-      <div class="tw"><table class="tree" id="cpLinhas"></table></div>
-      <div class="bd"><p class="hint" style="margin:0">Mesma estrutura da planilha do ECO: clique na linha para abrir os segmentos e as embarcações.
-        Clique no título de uma coluna para ordenar. A diferença em verde ajuda o caixa; em vermelho atrapalha.</p></div>
-    </div>
 
-    <div class="block">
-      <h3>Dia a dia<span class="sub" id="cpDiasN"></span></h3>
-      <div class="tw"><table id="cpDias"></table></div>
-      <div class="bd"><p class="hint" style="margin:0">Clique em um dia para ver a aba inteira só com aquele dia.</p></div>
+      <aside class="cp-rail">
+        <div class="block" style="margin-bottom:0">
+          <h3>Alertas<span class="sub" id="cpAlertaN"></span>
+            <span class="sp"></span>
+            <span class="seg" id="cpAlSeg">
+              <button data-a="crit" class="on">Críticos</button><button data-a="todos">Todos</button>
+            </span>
+          </h3>
+          <div class="cp-als" id="cpAlertas"></div>
+        </div>
+      </aside>
     </div>
   </section>
 </main>
@@ -3866,13 +3914,30 @@ function resEventos(){
 <script>resEventos();</script>
 <script>
 /* ================= COMPARATIVO · Fluxo Diário x Ultima Posição =================
-   Simples e direto: o que mudou da posição anterior para a atual.
-   As linhas seguem a mesma árvore do ECO; nada aqui altera as bases.          */
+   O que mudou da posição anterior para a atual, no dia, na semana e no período.
+   À esquerda uma vista por vez; à direita os gargalos, ordenados por quanto
+   pesam e por quão perto estão. Clicar num alerta leva direto à linha de origem.
 
-const CMP = { periodo: 'mes', i0: null, i1: null, dia: null,
-              aberto: null, busca: '', ordem: 'dif', dir: 'desc', so: 'mud' };
-/* as raízes já começam abertas: a primeira coisa a ver são as categorias */
-const cmpAbertos = () => CMP.aberto || (CMP.aberto = new Set(cmpRaizes()));
+   Adiantamento entre os grupos (Marlin <-> NVM) fica de fora: é dinheiro
+   trocando de bolso dentro de casa, não entra nem sai do caixa consolidado. */
+
+const CMP = { periodo: 'mes', i0: null, i1: null, dia: null, sem: null,
+              vista: 'sem', alerta: 'crit', alvo: null,
+              aberto: null, busca: '', ordem: 'dif', dir: 'desc', so: 'mud', fora: {} };
+
+const CMP_FORA = ['Adiantamento Marlin', 'Adiantamento NVM'];
+const cmpExcluido = id => CMP_FORA.includes((NODE[id] || {}).nome || '');
+
+/* mapa raiz -> nós excluídos abaixo dela, refeito a cada render (a base pode trocar) */
+function cmpMapaFora(){
+  const m = {};
+  D.nodes.forEach(n => {
+    if (!cmpExcluido(n.id)) return;
+    let p = n.id; while (NODE[p] && NODE[p].parent) p = NODE[p].parent;
+    (m[p] = m[p] || []).push(n.id);
+  });
+  return m;
+}
 
 const SERUP = {};
 function serUP(id){
@@ -3884,6 +3949,28 @@ function serUP(id){
 const upOk = g => !!(D.meta && D.meta.up && D.meta.up[g] && D.meta.up[g].ok);
 const cmpGrupos = () => grupos().filter(upOk);
 const cmpSoma = (a, i0, i1) => { let s = 0; for (let i = i0; i <= i1; i++) s += a[i]; return s; };
+const cmpRaizes = () => cmpGrupos().flatMap(g => [ROOT[g].E, ROOT[g].S]).filter(id => NODE[id]);
+
+/* entradas ou saídas do período, já sem as transferências entre grupos */
+function cmpFluxo(kind, i0, i1, up){
+  const f = up ? serUP : ser;
+  let t = 0;
+  cmpGrupos().forEach(g => {
+    const raiz = ROOT[g][kind];
+    if (!NODE[raiz]) return;
+    t += cmpSoma(f(raiz), i0, i1);
+    (CMP.fora[raiz] || []).forEach(id => t -= cmpSoma(f(id), i0, i1));
+  });
+  return t;
+}
+function cmpBloco(i0, i1){
+  const entA = cmpFluxo('E', i0, i1, false), entB = cmpFluxo('E', i0, i1, true);
+  const saiA = cmpFluxo('S', i0, i1, false), saiB = cmpFluxo('S', i0, i1, true);
+  return { entA, entB, saiA, saiB, resA: entA - saiA, resB: entB - saiB };
+}
+const cmpCaixaFim = i => cmpGrupos().reduce((a,g) => a + (D.saldo[g].caixaFim[i] || 0), 0);
+const cmpCaixaFimUP = i => cmpGrupos().reduce((a,g) => a + (((D.saldoUP[g]||{}).caixaFim || [])[i] || 0), 0);
+const cmpCaixaLivre = i => cmpGrupos().reduce((a,g) => a + ((D.saldo[g].caixaLivre || [])[i] || 0), 0);
 
 function cmpIntervalo(){
   if (CMP.periodo === 'mes'){ const m = MONTHS[MOF[TI]]; return [m.idx[0], m.idx[m.idx.length-1]]; }
@@ -3891,53 +3978,61 @@ function cmpIntervalo(){
   if (CMP.periodo === 'tudo') return [0, N-1];
   return [Math.min(CMP.i0 ?? 0, CMP.i1 ?? N-1), Math.max(CMP.i0 ?? 0, CMP.i1 ?? N-1)];
 }
-/* o foco é o dia escolhido, quando houver; senão o período inteiro */
+/* o foco é o dia escolhido, senão a semana escolhida, senão o período inteiro */
 function cmpFoco(){
   const [a, b] = cmpIntervalo();
   if (CMP.dia != null && CMP.dia >= a && CMP.dia <= b) return [CMP.dia, CMP.dia];
+  if (CMP.sem != null && WEEKS[CMP.sem]){
+    const idx = WEEKS[CMP.sem].idx.filter(i => i >= a && i <= b);
+    if (idx.length) return [idx[0], idx[idx.length-1]];
+  }
   return [a, b];
 }
+const cmpFocado = () => CMP.dia != null || CMP.sem != null;
 
 /* ---------------- árvore, na mesma ordem do ECO ---------------- */
-const cmpRaizes = () => cmpGrupos().flatMap(g => [ROOT[g].E, ROOT[g].S]).filter(id => NODE[id]);
-
 function cmpArvore(i0, i1){
   const q = CMP.busca.trim().toLowerCase();
   const bate = id => !q || (NODE[id].nome || '').toLowerCase().includes(q);
 
   function monta(id, nivel, paiBateu){
     const n = NODE[id];
-    const a = cmpSoma(ser(id), i0, i1), b = cmpSoma(serUP(id), i0, i1);
+    const bA = cmpSoma(ser(id), i0, i1), bB = cmpSoma(serUP(id), i0, i1);
+    /* transferência entre grupos: não aparece e ainda é descontada de quem está acima */
+    if (cmpExcluido(id)) return { excl: true, exA: bA, exB: bB };
+
     const meu = bate(id) || paiBateu;
-    const filhos = (KIDS[id] || []).map(k => monta(k, nivel + 1, meu)).filter(Boolean);
+    let exA = 0, exB = 0;
+    const filhos = [];
+    (KIDS[id] || []).forEach(k => {
+      const f = monta(k, nivel + 1, meu);
+      exA += f.exA || 0; exB += f.exB || 0;
+      if (!f.excl) filhos.push(f);
+    });
+    const a = bA - exA, b = bB - exB, dif = a - b;
     const achou = meu || filhos.some(f => f.achou);
-    if (q && !achou) return null;
-    const dif = a - b;
-    const mudouAqui = Math.abs(dif) > .5;
-    const mudou = mudouAqui || filhos.some(f => f.mudou);
-    return { id, n, nome: n.nome, nivel, a, b, dif, mudou, achou,
+    const mudou = Math.abs(dif) > .5 || filhos.some(f => f.mudou);
+    return { id, n, nome: n.nome, nivel, a, b, dif, mudou, achou, exA, exB,
+             visivel: !q || achou,
              rel: Math.abs(b) < .005 ? null : dif / Math.abs(b),
              novo: Math.abs(b) < .005 && Math.abs(a) > .005,
              sumiu: Math.abs(a) < .005 && Math.abs(b) > .005,
-             filhos };
+             filhos: filhos.filter(f => f.visivel) };
   }
-  return cmpRaizes().map(id => monta(id, 0, false)).filter(Boolean);
+  return cmpRaizes().map(id => monta(id, 0, false)).filter(x => !x.excl && x.visivel);
 }
 
-const CMP_COLS = { nome:  (x,y) => y.nome.localeCompare(x.nome, 'pt-BR'),
-                   b:     (x,y) => Math.abs(y.b) - Math.abs(x.b),
-                   a:     (x,y) => Math.abs(y.a) - Math.abs(x.a),
-                   dif:   (x,y) => Math.abs(y.dif) - Math.abs(x.dif),
-                   rel:   (x,y) => Math.abs(y.rel ?? -1) - Math.abs(x.rel ?? -1) };
-
+const CMP_COLS = { nome: (x,y) => y.nome.localeCompare(x.nome, 'pt-BR'),
+                   b:    (x,y) => Math.abs(y.b) - Math.abs(x.b),
+                   a:    (x,y) => Math.abs(y.a) - Math.abs(x.a),
+                   dif:  (x,y) => Math.abs(y.dif) - Math.abs(x.dif),
+                   rel:  (x,y) => Math.abs(y.rel ?? -1) - Math.abs(x.rel ?? -1) };
 function cmpOrdena(lista){
-  const f = CMP_COLS[CMP.ordem] || CMP_COLS.dif;
-  const ord = [...lista].sort(f);
+  const ord = [...lista].sort(CMP_COLS[CMP.ordem] || CMP_COLS.dif);
   if (CMP.dir === 'asc') ord.reverse();
   ord.forEach(x => x.filhos = cmpOrdena(x.filhos));
   return ord;
 }
-
 function cmpConta(lista, acc){
   acc = acc || { total: 0, mudaram: 0 };
   lista.forEach(x => { acc.total++; if (Math.abs(x.dif) > .5) acc.mudaram++; cmpConta(x.filhos, acc); });
@@ -3948,10 +4043,114 @@ function cmpTodosIds(lista, out){
   lista.forEach(x => { if (x.filhos.length){ out.push(x.id); cmpTodosIds(x.filhos, out); } });
   return out;
 }
+const cmpAbertos = () => CMP.aberto || (CMP.aberto = new Set(cmpRaizes()));
+const cmpAncestrais = id => { const s = []; let p = (NODE[id]||{}).parent; while (p){ s.push(p); p = (NODE[p]||{}).parent; } return s; };
+/* a linha, quem está acima e tudo que está abaixo dela */
+function cmpFamilia(id){
+  const s = new Set([id]);
+  cmpAncestrais(id).forEach(p => s.add(p));
+  (function desce(x){ (KIDS[x] || []).forEach(k => { s.add(k); desce(k); }); })(id);
+  return s;
+}
 
+/* ---------------- semanas do período ---------------- */
+function cmpSemanas(p0, p1){
+  const porSem = new Map();
+  for (let i = p0; i <= p1; i++){
+    const w = WOF[i];
+    if (!porSem.has(w)) porSem.set(w, []);
+    porSem.get(w).push(i);
+  }
+  return [...porSem.entries()].map(([w, idx]) => {
+    const i0 = idx[0], i1 = idx[idx.length-1];
+    const B = cmpBloco(i0, i1);
+    /* quanto o resultado oscilou dia a dia dentro da semana, sem deixar os
+       sinais se anularem: é isso que revela a troca de data */
+    let balanco = 0;
+    idx.forEach(i => { const d = cmpBloco(i, i); balanco += Math.abs(d.resA - d.resB); });
+    const difRes = B.resA - B.resB;
+    const soData = balanco > .5 && Math.abs(difRes) <= Math.max(.5, balanco * .10);
+    return { w, idx, i0, i1, ...B, difRes, balanco, soData };
+  });
+}
+
+/* ---------------- gargalos ----------------
+   Vale a pena olhar o que é grande e o que está perto. Um desencontro de
+   R$ 3 mi na semana que vem pesa mais que o mesmo valor em dezembro.      */
+function cmpGargalos(p0, p1, i0, i1){
+  const focado = cmpFocado();
+  const a0 = focado ? i0 : p0, a1 = focado ? i1 : p1;
+  const TP = cmpBloco(p0, p1);
+  const mat = Math.max(250, (TP.entA + TP.saiA) * .015);   // o que é material neste período
+  const peso = i => { const d = i - TI; return d <= 5 ? 1 : d <= 15 ? .8 : d <= 35 ? .55 : .35; };
+  const sev = v => Math.abs(v) >= mat * 3 ? 'alta' : Math.abs(v) >= mat ? 'media' : 'baixa';
+  const out = [], caixaJaAvisado = new Set();
+  const lim = +(S.lim || 0);
+
+  /* 1. caixa apertado na posição atual — o gargalo de verdade */
+  for (let i = a0; i <= a1; i++){
+    const livre = cmpCaixaLivre(i);
+    if (livre >= lim) continue;
+    caixaJaAvisado.add(i);
+    out.push({ tipo:'dia', ref:i, sev: livre < 0 ? 'alta' : 'media',
+      titulo: livre < 0 ? 'Caixa livre negativo' : 'Caixa livre abaixo do limite',
+      detalhe: `${dBRfull(D.dates[i])} · ${dow(D.dates[i])}${i > LRI ? ' · projeção' : ' · realizado'}`,
+      valor: livre, bom: false, sinal: false,
+      score: (Math.abs(livre) + mat * 2) * peso(i) * (livre < 0 ? 2.2 : 1) });
+  }
+
+  /* 2. dias em que o caixa final piorou contra a posição anterior */
+  for (let i = a0; i <= a1; i++){
+    if (caixaJaAvisado.has(i)) continue;
+    const dif = cmpCaixaFim(i) - cmpCaixaFimUP(i);
+    if (dif > -mat) continue;
+    out.push({ tipo:'dia', ref:i, sev: sev(dif),
+      titulo:'Caixa final piorou', valor: dif, bom:false,
+      detalhe: `${dBRfull(D.dates[i])} · ${dow(D.dates[i])} · antes ${fMil(cmpCaixaFimUP(i))}`,
+      score: Math.abs(dif) * peso(i) });
+  }
+
+  /* 3. linhas que divergiram, com o dia em que o desencontro mais pesa */
+  const folhas = D.nodes.filter(n => cmpGrupos().includes(n.grp) && n.parent
+    && !(KIDS[n.id] || []).length && !cmpExcluido(n.id));
+  folhas.forEach(n => {
+    const A = cmpSoma(ser(n.id), a0, a1), B = cmpSoma(serUP(n.id), a0, a1), dif = A - B;
+    if (Math.abs(dif) < mat) return;
+    let pico = a0, mx = -1;
+    for (let i = a0; i <= a1; i++){
+      const v = Math.abs(ser(n.id)[i] - serUP(n.id)[i]);
+      if (v > mx){ mx = v; pico = i; }
+    }
+    const entrada = n.kind === 'E';
+    const bom = entrada === (dif > 0);
+    const novo = Math.abs(B) < .005, sumiu = Math.abs(A) < .005;
+    const cam = pathOf(n.id).split(' › '); if (cam[cam.length-1] === n.nome) cam.pop();
+    out.push({ tipo:'linha', ref:n.id, sev: sev(dif), valor: dif, bom, pico,
+      titulo: `${n.nome} · ${novo ? (entrada?'entrada nova':'saída nova')
+        : sumiu ? (entrada?'entrada sumiu':'saída sumiu')
+        : entrada ? (dif>0?'entrada maior':'entrada menor') : (dif>0?'saída maior':'saída menor')}`,
+      detalhe: `${cam.join(' › ') || '—'} · maior impacto em ${dBR(D.dates[pico])}`,
+      score: Math.abs(dif) * peso(pico) * (bom ? .6 : 1) });
+  });
+
+  /* 4. semanas em que mudou a data e não o valor */
+  if (!focado) cmpSemanas(p0, p1).forEach(s => {
+    if (!s.soData || s.balanco < mat) return;
+    out.push({ tipo:'semana', ref:s.w, sev:'baixa', valor: s.balanco, bom:true,
+      titulo:'Só mudou de dia dentro da semana',
+      detalhe:`${dBR(D.dates[s.i0])} a ${dBR(D.dates[s.i1])} · o acumulado da semana não mudou`,
+      score: s.balanco * peso(s.i0) * .5 });
+  });
+
+  out.sort((x, y) => y.score - x.score);
+  return out;
+}
+
+/* ---------------- tela ---------------- */
 function renderComparativo(){
   const gs = cmpGrupos(), todos = grupos();
   const info = (D.meta && D.meta.up) || {};
+  CMP.fora = cmpMapaFora();
 
   if (!gs.length){
     $('cpAviso').innerHTML = `<div class="alert h"><span class="w">
@@ -3965,8 +4164,8 @@ function renderComparativo(){
           (${u.divRot} fora de lugar). A comparação foi recusada para não somar uma linha com outra.
           ${(u.exemplos||[]).length ? `<div class="mut" style="margin-top:4px;font-size:11px">${u.exemplos.map(esc).join('<br>')}</div>` : ''}`;
       }).filter(Boolean).join('<br>')}</div></span></div>`;
-    ['cpKpis','cpDias','cpLinhas','cpGraf','cpFoco'].forEach(id => { const e = $(id); if (e) e.innerHTML = ''; });
-    $('cpPer').textContent = ''; $('cpLinhasN').textContent = ''; $('cpDiasN').textContent = '';
+    ['cpKpis','cpDias','cpLinhas','cpSem','cpFoco','cpAlertas','cpAlvo'].forEach(id => { const e = $(id); if (e) e.innerHTML = ''; });
+    ['cpPer','cpVistaN','cpAlertaN','cpDica'].forEach(id => { const e = $(id); if (e) e.textContent = ''; });
     return;
   }
   $('cpAviso').innerHTML = todos.length > gs.length
@@ -3981,6 +4180,7 @@ function renderComparativo(){
   if (CMP.dia != null && (CMP.dia < p0 || CMP.dia > p1)) CMP.dia = null;
   const [i0, i1] = cmpFoco();
   $('cpDe').value = D.dates[p0]; $('cpAte').value = D.dates[p1];
+  if ($('cpLim') !== document.activeElement) $('cpLim').value = S.lim;
 
   const ultUP = gs.map(g => info[g].ultimoRealizado).filter(Boolean).sort()[0];
   const ultFD = gs.map(g => (g === 'MAR' ? D.meta.ultimoRealizadoMAR : D.meta.ultimoRealizadoBVT) || D.meta.ultimoRealizado)
@@ -3990,94 +4190,125 @@ function renderComparativo(){
     <span class="mut">· posição atual realizada até ${dBRfull(ultFD)},
     posição anterior até ${ultUP ? dBRfull(ultUP) : '—'}</span>`;
 
-  $('cpFoco').innerHTML = CMP.dia == null ? '' :
+  const focoTxt = CMP.dia != null ? `${dBRfull(D.dates[CMP.dia])}, ${dow(D.dates[CMP.dia])}`
+    : CMP.sem != null ? `a semana de ${dBR(D.dates[i0])} a ${dBR(D.dates[i1])}` : '';
+  $('cpFoco').innerHTML = !focoTxt ? '' :
     `<div class="alert m" style="margin-bottom:12px"><span class="w">
-      <b>Mostrando só ${dBRfull(D.dates[CMP.dia])}, ${dow(D.dates[CMP.dia])}.</b>
-      <div class="d">Os números e as linhas abaixo são só desse dia. O gráfico e a lista de dias continuam no período inteiro.</div></span>
-      <button class="btn sec sm" id="cpLimpaDia">Ver o período inteiro</button></div>`;
+      <b>Mostrando só ${focoTxt}.</b>
+      <div class="d">Os números, as linhas e os alertas são só desse recorte. As tabelas de semana e de dia continuam no período inteiro.</div></span>
+      <button class="btn sec sm" id="cpLimpaFoco">Ver o período inteiro</button></div>`;
 
   /* ---- a posição anterior cobre o período escolhido? ---- */
   const cobre = i => gs.some(g => { const u = info[g], d = D.dates[i];
     if (u && u.de && u.ate) return d >= u.de && d <= u.ate;
     const s = (D.saldoUP[g] || {}).caixaFim; return !!(s && Math.abs(s[i]) > .005); });
   let nCob = 0; for (let i = p0; i <= p1; i++) if (cobre(i)) nCob++;
-  const total = p1 - p0 + 1;
+  const totDias = p1 - p0 + 1;
   if (!nCob){
     $('cpAviso').innerHTML += `<div class="alert h"><span class="w">
       <b>A posição anterior não chega até este período.</b>
       <div class="d">Ela vai até ${gs.map(g => info[g].ate ? dBRfull(info[g].ate) : '—').join(' / ')}.
       Escolha um período dentro desse alcance, ou atualize a base com uma planilha em que a aba
       “Ultima Posição” esteja completa.</div></span></div>`;
-  } else if (nCob < total){
+  } else if (nCob < totDias){
     $('cpAviso').innerHTML += `<div class="alert m"><span class="w">
-      <b>A posição anterior cobre ${nCob} dos ${total} dias do período.</b>
+      <b>A posição anterior cobre ${nCob} dos ${totDias} dias do período.</b>
       <div class="d">Nos dias que ela não alcança, a coluna “antes” fica zerada — a diferença ali é o valor inteiro de hoje.</div></span></div>`;
   }
 
-  /* ---- saldos das duas bases ---- */
-  const S2 = { fimA:0, fimB:0, entA:0, entB:0, saiA:0, saiB:0, livA:0, livB:0 };
+  /* ---- os números do recorte em foco ---- */
+  const BL = cmpBloco(i0, i1);
+  let fimA = 0, fimB = 0, livA = 0, livB = 0;
   gs.forEach(g => {
     const a = D.saldo[g], b = (D.saldoUP || {})[g] || {};
     const p = (o,k,i) => (o && o[k] && o[k][i] != null) ? o[k][i] : 0;
-    S2.fimA += p(a,'caixaFim',i1); S2.fimB += p(b,'caixaFim',i1);
-    S2.livA += p(a,'caixaLivre',i1); S2.livB += p(b,'caixaLivre',i1);
-    S2.entA += cmpSoma(ser(ROOT[g].E), i0, i1); S2.entB += cmpSoma(serUP(ROOT[g].E), i0, i1);
-    S2.saiA += cmpSoma(ser(ROOT[g].S), i0, i1); S2.saiB += cmpSoma(serUP(ROOT[g].S), i0, i1);
+    fimA += p(a,'caixaFim',i1); fimB += p(b,'caixaFim',i1);
+    livA += p(a,'caixaLivre',i1); livB += p(b,'caixaLivre',i1);
   });
-  const d = (a, b) => a - b;
+  const dd = (a, b) => a - b;
   const pct = (x, base) => Math.abs(base) < .005 ? '' : ` · ${(x/Math.abs(base)*100>=0?'+':'')}${(x/Math.abs(base)*100).toFixed(1)}%`;
-  const quando = CMP.dia == null ? '' : ' no dia';
+  const maisMenos = x => Math.abs(x) < .5 ? 'sem mudança' : x > 0 ? `${fMil(x)} a mais` : `${fMil(-x)} a menos`;
 
   $('cpKpis').innerHTML =
-    kpi(`Caixa final em ${dBR(D.dates[i1])}`, S2.fimA, `antes era ${fMil(S2.fimB)}`, {hero:true}) +
-    kpi('Mudança no caixa final', d(S2.fimA,S2.fimB), 'posição anterior → atual' + pct(d(S2.fimA,S2.fimB), S2.fimB),
-        {warn: d(S2.fimA,S2.fimB) < 0}) +
-    kpi('Mudança nas entradas' + quando, d(S2.entA,S2.entB), `agora ${fMil(S2.entA)} · antes ${fMil(S2.entB)}`) +
-    kpi('Mudança nas saídas' + quando, -d(S2.saiA,S2.saiB), `agora ${fMil(S2.saiA)} · antes ${fMil(S2.saiB)}`) +
-    kpi('Mudança no caixa livre', d(S2.livA,S2.livB), `agora ${fMil(S2.livA)} · antes ${fMil(S2.livB)}`,
-        {warn: d(S2.livA,S2.livB) < 0});
+    kpi(`Caixa final em ${dBR(D.dates[i1])}`, fimA, `antes era ${fMil(fimB)}`, {hero:true}) +
+    kpi('Mudança no caixa final', dd(fimA,fimB), 'posição anterior → atual' + pct(dd(fimA,fimB), fimB),
+        {warn: dd(fimA,fimB) < 0}) +
+    kpi('Total de entradas', BL.entA, `antes ${fMil(BL.entB)} · ${maisMenos(dd(BL.entA,BL.entB))}`) +
+    kpi('Total de saídas', -BL.saiA, `antes ${fMil(-BL.saiB)} · ${maisMenos(dd(BL.saiA,BL.saiB))}`) +
+    kpi('Resultado (entradas − saídas)', BL.resA, `antes ${fMil(BL.resB)} · ${dd(BL.resA,BL.resB)>=0?'+':''}${fMil(dd(BL.resA,BL.resB))}`,
+        {warn: BL.resA < 0}) +
+    kpi('Mudança no caixa livre', dd(livA,livB), `agora ${fMil(livA)} · antes ${fMil(livB)}`,
+        {warn: dd(livA,livB) < 0});
 
-  /* ---- gráfico: caixa final nas duas bases, sempre no período inteiro ---- */
-  const lb = [], A = [], B = [];
-  for (let i = p0; i <= p1; i++){
-    lb.push(dBR(D.dates[i]));
-    let a = 0, b = 0;
-    gs.forEach(g => { a += D.saldo[g].caixaFim[i] || 0; b += ((D.saldoUP[g]||{}).caixaFim || [])[i] || 0; });
-    A.push(a); B.push(b);
-  }
-  lineChart($('cpGraf'), { h: 270, labels: lb,
-    series: [{ vals: B, color: CH.grey, dash: '5 4', w: 1.8 }, { vals: A, color: CH.green, area: true }],
-    mark: CMP.dia != null ? CMP.dia - p0 : ((TI >= p0 && TI <= p1) ? TI - p0 : -1),
-    markTxt: CMP.dia != null ? (CMP.dia === TI ? 'hoje' : dBR(D.dates[CMP.dia])) : 'hoje',
-    legend: `<div class="lg"><span><i style="background:${CH.grey}"></i>Posição anterior</span>
-      <span><i style="background:${CH.green}"></i>Posição atual</span></div>` });
+  /* subir é bom para entradas, caixa e resultado; para saídas é o contrário */
+  const col3 = (a, b, subirEhBom) => {
+    const x = a - b, cor = Math.abs(x) < .5 ? 'mut' : ((x > 0) === (subirEhBom !== false) ? 'pos' : 'neg');
+    return `<td class="n mut">${fMil(b)}</td><td class="n">${fMil(a)}</td>
+            <td class="n ${cor}">${Math.abs(x)<.5?'—':(x>0?'+':'')+fMil(x)}</td>`;
+  };
+  const TP = cmpBloco(p0, p1);
+
+  /* ---- semana a semana ---- */
+  const sems = cmpSemanas(p0, p1);
+  const trio = '<th class="n s2">antes</th><th class="n s2">agora</th><th class="n s2">dif.</th>';
+  let hs = `<thead>
+    <tr><th rowspan="2">Semana</th><th class="grp" colspan="3">Entradas</th>
+        <th class="grp" colspan="3">Saídas</th><th class="grp" colspan="3">Resultado</th>
+        <th class="n" rowspan="2">Oscilação<br>dia a dia</th><th rowspan="2">Situação</th></tr>
+    <tr>${trio}${trio}${trio}</tr></thead><tbody>`;
+  sems.forEach(s => {
+    const sel = CMP.sem === s.w && CMP.dia == null;
+    hs += `<tr class="clik ${sel?'sel':''}" data-cps="${s.w}">
+      <td><b class="num">${dBR(D.dates[s.i0])} a ${dBR(D.dates[s.i1])}</b>
+        <div class="mut" style="font-size:11px">${s.idx.length > 1 ? s.idx.length + ' dias úteis' : '1 dia útil'}${
+          s.i1 <= lriC ? ' · realizada' : (s.i0 > lriC ? ' · projeção' : ' · em curso')}</div></td>
+      ${col3(s.entA, s.entB, true)}${col3(s.saiA, s.saiB, false)}${col3(s.resA, s.resB, true)}
+      <td class="n ${s.balanco > Math.abs(s.difRes) * 2 + .5 ? '' : 'mut'}">${s.balanco < .5 ? '—' : fMil(s.balanco)}</td>
+      <td>${s.soData ? '<span class="bdg at">só mudou de dia</span>'
+          : Math.abs(s.difRes) >= .5 ? (s.difRes > 0 ? '<span class="bdg ok">melhorou</span>' : '<span class="bdg risk">piorou</span>')
+          : (Math.abs(s.entA-s.entB) > .5 || Math.abs(s.saiA-s.saiB) > .5)
+            ? '<span class="bdg r">girou mais, resultado igual</span>'
+            : '<span class="bdg ok">igual</span>'}</td></tr>`;
+  });
+  hs += `<tr class="tot"><td>Total do período</td>
+    ${col3(TP.entA, TP.entB, true)}${col3(TP.saiA, TP.saiB, false)}${col3(TP.resA, TP.resB, true)}
+    <td class="n">${fMil(sems.reduce((a,s) => a + s.balanco, 0))}</td><td></td></tr>`;
+  $('cpSem').innerHTML = hs + '</tbody>';
 
   /* ---- dia a dia ---- */
-  let h = `<thead><tr><th>Dia</th><th class="n">Caixa final antes</th><th class="n">Caixa final agora</th>
-    <th class="n">Diferença</th><th>Situação</th></tr></thead><tbody>`;
+  let h = `<thead>
+    <tr><th rowspan="2">Dia</th><th class="grp" colspan="3">Entradas</th>
+        <th class="grp" colspan="3">Saídas</th><th class="grp" colspan="3">Caixa final</th>
+        <th rowspan="2">Situação</th></tr>
+    <tr>${trio}${trio}${trio}</tr></thead><tbody>`;
   let mudou = 0;
-  for (let i = p0; i <= p1; i++) if (Math.abs(A[i-p0] - B[i-p0]) > .5) mudou++;
   for (let i = p0; i <= p1; i++){
-    const a = A[i-p0], b = B[i-p0], dif = a - b;
-    h += `<tr class="clik ${CMP.dia === i ? 'sel' : (Math.abs(dif)>.5?'':'mut')}" data-cpd="${i}">
+    const dB = cmpBloco(i, i), a = cmpCaixaFim(i), b = cmpCaixaFimUP(i), dif = a - b;
+    if (Math.abs(dif) > .5) mudou++;
+    const naSem = CMP.sem != null && WOF[i] === CMP.sem;
+    h += `<tr class="clik ${CMP.dia === i ? 'sel' : (naSem ? '' : (Math.abs(dif)>.5?'':'mut'))}" data-cpd="${i}">
       <td><b class="num">${dBR(D.dates[i])}</b> <span class="mut">${dow(D.dates[i])}</span>
         ${i<=lriC?'<span class="bdg sim">realizado</span>':'<span class="bdg r">projeção</span>'}</td>
-      <td class="n mut">${fMil(b)}</td><td class="n ${cls(a)}"><b>${fMil(a)}</b></td>
-      <td class="n ${cls(dif)}">${Math.abs(dif)<.5?'—':(dif>0?'+':'')+fMil(dif)}</td>
+      ${col3(dB.entA, dB.entB, true)}${col3(dB.saiA, dB.saiB, false)}${col3(a, b, true)}
       <td>${Math.abs(dif)<.5 ? '<span class="bdg ok">igual</span>'
             : dif>0 ? '<span class="bdg ok">melhorou</span>' : '<span class="bdg risk">piorou</span>'}</td></tr>`;
   }
+  h += `<tr class="tot"><td>Total do período</td>
+    ${col3(TP.entA, TP.entB, true)}${col3(TP.saiA, TP.saiB, false)}
+    <td class="n mut">—</td><td class="n mut">—</td><td class="n mut">—</td><td></td></tr>`;
   $('cpDias').innerHTML = h + '</tbody>';
-  $('cpDiasN').textContent = `${mudou} de ${p1-p0+1} dias mudaram`
-    + (CMP.dia != null ? ` · ${dBR(D.dates[CMP.dia])} selecionado` : '');
 
   /* ---- linhas, na árvore do ECO ---- */
   const arvore = cmpOrdena(cmpArvore(i0, i1));
   const cnt = cmpConta(arvore);
   const q = CMP.busca.trim();
-  $('cpLinhasN').textContent = q
-    ? `${cnt.total} linha(s) com “${q}” · ${cnt.mudaram} mudaram`
-    : `${cnt.mudaram} de ${cnt.total} linhas mudaram${CMP.dia != null ? ' nesse dia' : ''}`;
+  const fam = (CMP.alvo && CMP.alvo.tipo === 'linha') ? cmpFamilia(CMP.alvo.ref) : null;
+
+  $('cpAlvo').innerHTML = !fam ? '' :
+    `<div class="alert l" style="margin-bottom:0"><span class="w">
+      <b>Filtrando por ${esc((NODE[CMP.alvo.ref]||{}).nome || '')}.</b>
+      <div class="d">${esc(pathOf(CMP.alvo.ref))}</div></span>
+      <button class="btn sec sm" id="cpLimpaAlvo">Ver todas as linhas</button></div>`;
 
   const seta = c => CMP.ordem !== c ? '' : (CMP.dir === 'desc' ? ' ▾' : ' ▴');
   const th = (c, rot, n) => `<th class="${n?'n ':''}clik" data-cpo="${c}">${rot}${seta(c)}</th>`;
@@ -4087,14 +4318,15 @@ function renderComparativo(){
   let linhas = 0;
   (function desce(lista){
     lista.forEach(x => {
-      if (CMP.so === 'mud' && !x.mudou && !(q && x.achou)) return;
+      if (fam && !fam.has(x.id)) return;
+      if (!fam && CMP.so === 'mud' && !x.mudou && !(q && x.achou)) return;
       linhas++;
-      const temF = x.filhos.length > 0;
-      const abr = temF && (cmpAbertos().has(x.id) || (q && x.filhos.some(f => f.achou)));
+      const temF = x.filhos.length > 0 && (!fam || x.filhos.some(f => fam.has(f.id)));
+      const abr = temF && (cmpAbertos().has(x.id) || (q && x.filhos.some(f => f.achou)) || fam);
       const bom = (x.n.kind === 'E') === (x.dif > 0);
-      const pad = 14 + x.nivel * 20;
-      t += `<tr class="${x.nivel === 0 ? 'tw-l1' : ''} ${temF ? 'clik' : ''}" ${temF ? `data-cpn="${x.id}"` : ''}>
-        <td style="padding-left:${pad}px">
+      const alvo = fam && CMP.alvo.ref === x.id;
+      t += `<tr class="${x.nivel === 0 ? 'tw-l1' : ''} ${alvo ? 'sel' : ''} ${temF ? 'clik' : ''}" ${temF ? `data-cpn="${x.id}"` : ''}>
+        <td style="padding-left:${14 + x.nivel * 20}px">
           <span class="tg${temF?' b':''}">${temF ? (abr ? '▾' : '▸') : ''}</span>${esc(x.nome)}</td>
         <td class="n mut">${fMil(x.b)}</td><td class="n">${fMil(x.a)}</td>
         <td class="n ${Math.abs(x.dif)<.5 ? 'mut' : (bom?'pos':'neg')}">${
@@ -4111,34 +4343,93 @@ function renderComparativo(){
     });
   })(arvore);
 
-  $('cpLinhas').innerHTML = t + (linhas ? '' :
-    `<tr><td colspan="6" class="empty">${q ? 'Nenhuma linha com esse texto.' : 'Nenhuma linha mudou no período.'}</td></tr>`) + '</tbody>';
+  if (!linhas) t += `<tr><td colspan="6" class="empty">${q ? 'Nenhuma linha com esse texto.' : 'Nenhuma linha mudou no recorte.'}</td></tr>`;
+  const totLinha = (rot, a, b, bomSeSobe) => {
+    const x = a - b;
+    return `<tr class="tot"><td>${rot}</td><td class="n mut">${fMil(b)}</td><td class="n">${fMil(a)}</td>
+      <td class="n ${Math.abs(x)<.5 ? 'mut' : ((x>0)===bomSeSobe?'pos':'neg')}">${Math.abs(x)<.5?'—':(x>0?'+':'')+fMil(x)}</td>
+      <td class="n">${Math.abs(x)<.5||Math.abs(b)<.005 ? '<span class="mut">—</span>' : (x/Math.abs(b)>=0?'+':'')+(x/Math.abs(b)*100).toFixed(0)+'%'}</td>
+      <td></td></tr>`;
+  };
+  t += totLinha('Total de entradas', BL.entA, BL.entB, true)
+     + totLinha('Total de saídas', BL.saiA, BL.saiB, false)
+     + totLinha('Resultado (entradas − saídas)', BL.resA, BL.resB, true);
+  $('cpLinhas').innerHTML = t + '</tbody>';
+
+  /* ---- qual vista está na tela ---- */
+  const V = CMP.vista;
+  $('cpWrapSem').style.display    = V === 'sem'    ? '' : 'none';
+  $('cpWrapDias').style.display   = V === 'dias'   ? '' : 'none';
+  $('cpWrapLinhas').style.display = V === 'linhas' ? '' : 'none';
+  $('cpCtlLinhas').style.display  = V === 'linhas' ? 'inline-flex' : 'none';
+  $('cpFldBusca').style.display   = V === 'linhas' ? '' : 'none';
+  $('cpAlvo').style.display       = V === 'linhas' ? '' : 'none';
+  document.querySelectorAll('#cpVista button').forEach(b => b.classList.toggle('on', b.dataset.v === V));
+  $('cpVistaN').textContent =
+    V === 'sem'  ? `${sems.length} semana(s)` + (sems.filter(s=>s.soData).length
+                     ? ` · ${sems.filter(s=>s.soData).length} em que mudou só a data` : '')
+  : V === 'dias' ? `${mudou} de ${totDias} dias mudaram`
+  : q            ? `${cnt.total} linha(s) com “${q}” · ${cnt.mudaram} mudaram`
+                 : `${cnt.mudaram} de ${cnt.total} linhas mudaram${focoTxt ? ' nesse recorte' : ''}`;
+  $('cpDica').innerHTML =
+    V === 'sem'  ? `Clique numa semana para ver a aba inteira só com ela. <b>Oscilação dia a dia</b> é quanto o resultado se mexeu somando dia por dia, sem deixar os sinais se anularem. Quando ela é grande e a diferença da semana é pequena, mudou a data e não o valor.`
+  : V === 'dias' ? `Clique em um dia para ver a aba inteira só com aquele dia.`
+                 : `Mesma estrutura da planilha do ECO: clique na linha para abrir os segmentos e as embarcações. Clique no título de uma coluna para ordenar.`;
+
+  /* ---- alertas ---- */
+  const gar = cmpGargalos(p0, p1, i0, i1);
+  const todosAl = cmpFocado() || CMP.alerta === 'todos';
+  const mostra = todosAl ? gar.slice(0, 40) : gar.filter(a => a.sev !== 'baixa').slice(0, 8);
+  const nAlta = gar.filter(a => a.sev === 'alta').length;
+  $('cpAlertaN').textContent = !gar.length ? 'nada a destacar'
+    : cmpFocado() ? `${gar.length} neste recorte`
+    : `${mostra.length} de ${gar.length}${nAlta ? ` · ${nAlta} crítico(s)` : ''}`;
+  document.querySelectorAll('#cpAlSeg button').forEach(b => b.classList.toggle('on', b.dataset.a === CMP.alerta));
+
+  $('cpAlertas').innerHTML = mostra.length ? mostra.map(a => {
+    const sel = CMP.alvo && CMP.alvo.tipo === a.tipo && CMP.alvo.ref === a.ref;
+    return `<button type="button" class="cp-al ${a.sev} ${sel?'on':''}" data-cpa="${a.tipo}|${a.ref}">
+      <div class="t">${esc(a.titulo)}</div>
+      <div class="d">${esc(a.detalhe)}</div>
+      <span class="v ${a.bom?'pos':'neg'}">${a.sinal === false || a.valor <= 0 ? '' : '+'}${fMil(a.valor)}</span></button>`;
+  }).join('') : `<div class="cp-alnone">${cmpFocado()
+      ? 'Nenhum gargalo nesse recorte.'
+      : 'Nada acima do limite de materialidade neste período.'}</div>`;
 }
 
 /* ---------------- eventos ---------------- */
 function cmpEventos(){
+  const limpaFoco = () => { CMP.dia = null; CMP.sem = null; CMP.alvo = null; };
+  const vista = v => { CMP.vista = v; };
+
   document.querySelectorAll('#cpPerSeg button').forEach(b => b.onclick = () => {
     document.querySelectorAll('#cpPerSeg button').forEach(x => x.classList.remove('on'));
-    b.classList.add('on'); CMP.periodo = b.dataset.p; CMP.dia = null; renderComparativo(); });
+    b.classList.add('on'); CMP.periodo = b.dataset.p; limpaFoco(); renderComparativo(); });
 
   const pick = v => { if (DIDX[v] !== undefined) return DIDX[v];
     let k = 0; for (let j=0;j<N;j++) if (D.dates[j] <= v) k = j; return k; };
   ['cpDe','cpAte'].forEach(id => $(id).onchange = () => {
-    CMP.periodo = 'livre'; CMP.i0 = pick($('cpDe').value); CMP.i1 = pick($('cpAte').value); CMP.dia = null;
+    CMP.periodo = 'livre'; CMP.i0 = pick($('cpDe').value); CMP.i1 = pick($('cpAte').value); limpaFoco();
     document.querySelectorAll('#cpPerSeg button').forEach(x => x.classList.remove('on'));
     renderComparativo(); });
 
+  $('cpLim').oninput = () => { S.lim = +$('cpLim').value || 0; save(); renderComparativo(); };
+
+  document.querySelectorAll('#cpVista button').forEach(b => b.onclick = () => {
+    vista(b.dataset.v); renderComparativo(); });
+  document.querySelectorAll('#cpAlSeg button').forEach(b => b.onclick = () => {
+    CMP.alerta = b.dataset.a; renderComparativo(); });
   document.querySelectorAll('#cpSoSeg button').forEach(b => b.onclick = () => {
     document.querySelectorAll('#cpSoSeg button').forEach(x => x.classList.remove('on'));
     b.classList.add('on'); CMP.so = b.dataset.s; renderComparativo(); });
 
   let tb = null;
   $('cpBusca').oninput = () => { clearTimeout(tb);
-    tb = setTimeout(() => { CMP.busca = $('cpBusca').value; renderComparativo(); }, 180); };
+    tb = setTimeout(() => { CMP.busca = $('cpBusca').value; CMP.alvo = null; renderComparativo(); }, 180); };
 
   $('cpAbrir').onclick = () => {
     cmpTodosIds(cmpArvore(...cmpFoco())).forEach(id => cmpAbertos().add(id)); renderComparativo(); };
-  $('cpFechar').onclick = () => { CMP.aberto = new Set(cmpRaizes()); renderComparativo(); };
+  $('cpFechar').onclick = () => { CMP.aberto = new Set(); renderComparativo(); };
   $('cpXls').onclick = cmpRelatorioExcel;
 
   /* abrir e fechar uma linha da árvore, e ordenar pelas colunas */
@@ -4152,25 +4443,50 @@ function cmpEventos(){
     }
     const tr = ev.target.closest('tr[data-cpn]');
     if (!tr) return;
-    const id = tr.dataset.cpn;
-    const ab = cmpAbertos(); ab.has(id) ? ab.delete(id) : ab.add(id);
+    const id = tr.dataset.cpn, ab = cmpAbertos();
+    ab.has(id) ? ab.delete(id) : ab.add(id);
     renderComparativo();
   });
 
-  /* clicar num dia filtra a aba inteira para aquele dia */
+  /* clicar numa semana ou num dia filtra a aba inteira para aquele recorte */
+  $('cpSem').addEventListener('click', ev => {
+    const tr = ev.target.closest('tr[data-cps]');
+    if (!tr) return;
+    const w = +tr.dataset.cps, igual = CMP.sem === w && CMP.dia == null;
+    limpaFoco(); if (!igual) CMP.sem = w;
+    renderComparativo(); cmpSobe();
+  });
   $('cpDias').addEventListener('click', ev => {
     const tr = ev.target.closest('tr[data-cpd]');
     if (!tr) return;
-    const i = +tr.dataset.cpd;
-    CMP.dia = (CMP.dia === i) ? null : i;
-    renderComparativo();
-    if (CMP.dia != null) $('cpKpis').scrollIntoView({ behavior:'smooth', block:'center' });
+    const i = +tr.dataset.cpd, igual = CMP.dia === i;
+    limpaFoco(); if (!igual) CMP.dia = i;
+    renderComparativo(); cmpSobe();
+  });
+
+  /* clicar num alerta leva direto ao que o originou */
+  $('cpAlertas').addEventListener('click', ev => {
+    const bt = ev.target.closest('button[data-cpa]');
+    if (!bt) return;
+    const [tipo, ref] = bt.dataset.cpa.split('|');
+    const jaEra = CMP.alvo && CMP.alvo.tipo === tipo && String(CMP.alvo.ref) === ref;
+    limpaFoco();
+    if (!jaEra){
+      if (tipo === 'dia'){ CMP.dia = +ref; vista('dias'); }
+      else if (tipo === 'semana'){ CMP.sem = +ref; vista('sem'); }
+      else { CMP.alvo = { tipo:'linha', ref }; vista('linhas');
+             cmpAncestrais(ref).forEach(p => cmpAbertos().add(p)); }
+      if (tipo !== 'linha') CMP.alvo = { tipo, ref: +ref };
+    }
+    renderComparativo(); cmpSobe();
   });
 
   document.addEventListener('click', ev => {
-    if (ev.target.id === 'cpLimpaDia'){ CMP.dia = null; renderComparativo(); }
+    if (ev.target.id === 'cpLimpaFoco'){ limpaFoco(); renderComparativo(); }
+    if (ev.target.id === 'cpLimpaAlvo'){ CMP.alvo = null; renderComparativo(); }
   });
 }
+function cmpSobe(){ const e = $('cpKpis'); if (e) e.scrollIntoView({ behavior:'smooth', block:'center' }); }
 </script>
 
 <script>
@@ -4228,20 +4544,23 @@ const XW = (() => {
      5 subtotal · 6 percentual · 7 faixa de seção · 8 número em faixa · 9 nota */
   const STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<numFmts count="2"><numFmt numFmtId="164" formatCode="#,##0;[Red]-#,##0"/><numFmt numFmtId="165" formatCode="0.0%;[Red]-0.0%"/></numFmts>
-<fonts count="5">
+<numFmts count="3"><numFmt numFmtId="164" formatCode="#,##0;[Red]-#,##0"/><numFmt numFmtId="165" formatCode="0.0%;[Red]-0.0%"/><numFmt numFmtId="166" formatCode="dd/mm/yyyy"/></numFmts>
+<fonts count="8">
 <font><sz val="11"/><name val="Segoe UI"/></font>
 <font><b/><sz val="11"/><name val="Segoe UI"/></font>
 <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Segoe UI"/></font>
 <font><sz val="9"/><color rgb="FF6B7A75"/><name val="Segoe UI"/></font>
-<font><b/><sz val="14"/><color rgb="FF00694A"/><name val="Segoe UI"/></font></fonts>
+<font><b/><sz val="14"/><color rgb="FF00694A"/><name val="Segoe UI"/></font>
+<font><b/><sz val="11"/><color rgb="FFB14A45"/><name val="Segoe UI"/></font>
+<font><b/><sz val="12"/><color rgb="FF0C3527"/><name val="Segoe UI"/></font>
+<font><b/><sz val="18"/><name val="Segoe UI"/></font></fonts>
 <fills count="4"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FF00694A"/><bgColor indexed="64"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFEDF2F0"/><bgColor indexed="64"/></patternFill></fill></fills>
 <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border>
 <border><left/><right/><top style="thin"><color rgb="FFD4DCD9"/></top><bottom/><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="11">
+<cellXfs count="18">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
@@ -4253,10 +4572,18 @@ const XW = (() => {
 <xf numFmtId="164" fontId="1" fillId="3" borderId="0" xfId="0" applyNumberFormat="1" applyFill="1"/>
 <xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>
 <xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+<xf numFmtId="164" fontId="5" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
+<xf numFmtId="0" fontId="6" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1"/>
+<xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+<xf numFmtId="164" fontId="0" fillId="3" borderId="0" xfId="0" applyNumberFormat="1" applyFill="1"/>
+<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>
+<xf numFmtId="164" fontId="7" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/>
+<xf numFmtId="165" fontId="1" fillId="3" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1" applyBorder="1"/>
 </cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
 
   /* linhas: [{cells:[{v, s, t}], alt}] — t:'s' texto, senão número */
-  function folha(linhas, larguras, congelar){
+  function folha(linhas, larguras, congelar, op){
+    op = op || {};
     let cols = '';
     if (larguras && larguras.length)
       cols = '<cols>' + larguras.map((w, i) => `<col min="${i+1}" max="${i+1}" width="${w}" customWidth="1"/>`).join('') + '</cols>';
@@ -4270,13 +4597,28 @@ const XW = (() => {
         const casas = c.s === 6 ? 1e8 : 1e2;
         return `<c r="${ref}"${s}><v>${Number.isFinite(c.v) ? Math.round(c.v * casas) / casas : 0}</v></c>`;
       }).join('');
-      return `<row r="${r+1}"${L.alt ? ` ht="${L.alt}" customHeight="1"` : ''}>${cs}</row>`;
+      return `<row r="${r+1}"${L.alt ? ` ht="${L.alt}" customHeight="1"` : ''}${
+        L.nivel ? ` outlineLevel="${Math.min(7, L.nivel)}"` : ''}>${cs}</row>`;
     }).join('');
     const painel = congelar
       ? `<sheetViews><sheetView workbookViewId="0"><pane xSplit="${congelar.x||0}" ySplit="${congelar.y||0}" topLeftCell="${colL((congelar.x||0)+1)}${(congelar.y||0)+1}" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>`
       : '';
+    /* os grupos ficam com o pai em cima, como na árvore da tela;
+       sem pageSetUpPr o Excel ignora o "caber em uma página de largura" */
+    const prIn = (op.recuo ? '<outlinePr summaryBelow="0" summaryRight="0"/>' : '')
+               + (op.paisagem ? '<pageSetUpPr fitToPage="1"/>' : '');
+    const pr = prIn ? `<sheetPr>${prIn}</sheetPr>` : '';
+    /* filtro na linha de cabeçalho, para ela fatiar o relatório no Excel */
+    const filtro = op.filtro
+      ? `<autoFilter ref="A${op.filtro.linha}:${colL(op.filtro.cols)}${linhas.length}"/>` : '';
+    /* uma página de largura, em paisagem: o relatório costuma ser impresso */
+    const imp = op.paisagem
+      ? `<pageMargins left="0.3" right="0.3" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>
+<pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0" paperSize="9"/>`
+      : '<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>';
+    const fit = op.paisagem ? '<sheetFormatPr defaultRowHeight="15"/>' : '';
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${painel}${cols}<sheetData>${corpo}</sheetData></worksheet>`;
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${pr}${painel}${fit}${cols}<sheetData>${corpo}</sheetData>${filtro}${imp}</worksheet>`;
   }
 
   function livro(abas){
@@ -4301,7 +4643,7 @@ ${abas.map((a,i)=>`<Relationship Id="rId${i+1}" Type="http://schemas.openxmlform
 <Relationship Id="rId${abas.length+1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
       { nome: 'xl/styles.xml', txt: STYLES }
     ];
-    abas.forEach((a, i) => arq.push({ nome: `xl/worksheets/sheet${i+1}.xml`, txt: folha(a.linhas, a.larguras, a.congelar) }));
+    abas.forEach((a, i) => arq.push({ nome: `xl/worksheets/sheet${i+1}.xml`, txt: folha(a.linhas, a.larguras, a.congelar, a) }));
     return zip(arq);
   }
 
@@ -4317,11 +4659,21 @@ ${abas.map((a,i)=>`<Relationship Id="rId${i+1}" Type="http://schemas.openxmlform
 /* ---------- as linhas do resumo, calculadas em qualquer uma das duas bases ---------- */
 const cmpVal = base => (id, i) => (base === 'UP' ? serUP(id) : ser(id))[i] || 0;
 
+/* valor de um nó já sem as transferências entre os grupos que estejam abaixo dele */
+function cmpValNo(id, i, V){
+  let t = V(id, i);
+  (function desce(p){ (KIDS[p] || []).forEach(k => {
+    if (cmpExcluido(k)) t -= V(k, i); else desce(k); }); })(id);
+  return t;
+}
 function cmpPorNome(nomes, raizKind, i, V){
   let t = 0;
   cmpGrupos().forEach(g => {
     const raiz = ROOT[g][raizKind];
-    (KIDS[raiz] || []).forEach(id => { if (nomes.includes(NODE[id].nome)) t += V(id, i); });
+    (KIDS[raiz] || []).forEach(id => {
+      if (cmpExcluido(id) || !nomes.includes(NODE[id].nome)) return;
+      t += cmpValNo(id, i, V);
+    });
   });
   return t;
 }
@@ -4330,7 +4682,8 @@ function cmpReceitaL(i, estaleiro, V){
   cmpGrupos().forEach(g => {
     const rec = g === 'MAR' ? 'MREC' : 'REC';
     (KIDS[rec] || []).forEach(id => {
-      if ((NODE[id].nome === 'Estaleiro') === !!estaleiro) t += V(id, i) * dispSign(NODE[id]);
+      if (cmpExcluido(id)) return;
+      if ((NODE[id].nome === 'Estaleiro') === !!estaleiro) t += cmpValNo(id, i, V) * dispSign(NODE[id]);
     });
   });
   return t;
@@ -4349,7 +4702,6 @@ const CMP_RES = [
   { k:'estaleiro', nome:'Receita Estaleiro',                  sinal:+1, f:(i,V) => cmpReceitaL(i, true, V) },
   { k:'antecip',   nome:'Antecipação de recebíveis',          sinal:+1, f:(i,V) => cmpPorNome(['Antecipações Recebíveis'],'E',i,V) },
   { k:'captacao',  nome:'Nova captação',                      sinal:+1, f:(i,V) => cmpPorNome(['Captações'],'E',i,V) },
-  { k:'adiant',    nome:'Adiantamento entre grupos',          sinal:+1, f:(i,V) => cmpPorNome(['Adiantamento Marlin','Adiantamento NVM'],'E',i,V) },
   { k:'outrasent', nome:'Outras entradas',                    sinal:+1, f:(i,V) => cmpPorNome(['Outras Entradas'],'E',i,V) },
   { k:'dp',        nome:'DP · custos com pessoal',            sinal:-1, f:(i,V) => cmpPorNome(['Custos Pessoais'],'S',i,V) },
   { k:'cap',       nome:'CAP · fornecedores e câmbio',        sinal:-1, f:(i,V) => cmpPorNome(
@@ -4382,10 +4734,11 @@ function cmpRelatorioExcel(){
     return;
   }
 
-  let [p0, p1] = cmpIntervalo();
-  let cortado = 0;
-  if (p1 - p0 + 1 > CMP_XLS_MAX){ cortado = p1 - p0 + 1 - CMP_XLS_MAX; p1 = p0 + CMP_XLS_MAX - 1; }
-  const dias = []; for (let i = p0; i <= p1; i++) dias.push(i);
+  const [p0, p1] = cmpIntervalo();
+  /* as abas com um dia por coluna não cabem num período longo; as de linha, sim */
+  let c0 = p0, c1 = p1, cortado = 0;
+  if (c1 - c0 + 1 > CMP_XLS_MAX){ cortado = c1 - c0 + 1 - CMP_XLS_MAX; c1 = c0 + CMP_XLS_MAX - 1; }
+  const dias = []; for (let i = c0; i <= c1; i++) dias.push(i);
 
   const A = cmpResumoBase(dias, 'FD'), B = cmpResumoBase(dias, 'UP');
   const info = (D.meta && D.meta.up) || {};
@@ -4396,6 +4749,14 @@ function cmpRelatorioExcel(){
   const Nc = (v, s) => ({ v, s });
   const Tc = (v, s) => ({ v, s, t: 's' });
   const larguras = [34, ...dias.map(() => 13), 15];
+  const SEV = { alta: 'Crítico', media: 'Atenção', baixa: 'Informativo' };
+  /* número que o Excel lê como data */
+  const serial = iso => Math.round((Date.parse(iso + 'T12:00:00Z') - Date.parse('1899-12-30T12:00:00Z')) / 86400000);
+  /* os alertas do período inteiro, independentes do dia ou semana em foco na tela */
+  const focoTela = { dia: CMP.dia, sem: CMP.sem };
+  CMP.dia = null; CMP.sem = null;
+  const alertas = cmpGargalos(p0, p1, p0, p1);
+  CMP.dia = focoTela.dia; CMP.sem = focoTela.sem;
 
   /* cabeçalho comum das três abas */
   function topo(titulo, subtitulo){
@@ -4426,8 +4787,9 @@ function cmpRelatorioExcel(){
     L.push({ cells: [] });
     L.push({ cells: [Tc('Saldo do dia = saldo inicial + entradas − saídas. O saldo inicial é o caixa livre do dia anterior, direto do ECO.', 9)] });
     L.push({ cells: [Tc('Caixa livre é o caixa final menos as travas bancária e gerencial — por isso o saldo do dia não bate com o caixa final da planilha.', 9)] });
+    L.push({ cells: [Tc('Adiantamento entre os grupos fica de fora: é transferência interna, não entra nem sai do caixa consolidado.', 9)] });
     if (cortado) L.push({ cells: [Tc(`O período escolhido tem mais dias do que cabe aqui; foram incluídos os ${CMP_XLS_MAX} primeiros (${cortado} de fora).`, 9)] });
-    return { nome, linhas: L, larguras, congelar: { x: 1, y: 5 } };
+    return { nome, linhas: L, larguras, congelar: { x: 1, y: 5 }, paisagem: true };
   }
 
   /* ----- aba de diferenças ----- */
@@ -4461,15 +4823,156 @@ function cmpRelatorioExcel(){
       a + (D.saldo[g].caixaFim[i] || 0) - (((D.saldoUP[g]||{}).caixaFim||[])[i] || 0), 0), 5)), Tc('', 5)] });
     L.push({ cells: [] });
     L.push({ cells: [Tc('Travas e lançamentos manuais não entram aqui: o relatório compara só o que está nas duas abas da planilha.', 9)] });
-    return { nome: 'Diferenças', linhas: L, larguras, congelar: { x: 1, y: 5 } };
+    L.push({ cells: [Tc('Adiantamento entre os grupos fica de fora: é transferência interna, não entra nem sai do caixa consolidado.', 9)] });
+    return { nome: 'Diferenças', linhas: L, larguras, congelar: { x: 1, y: 5 }, paisagem: true };
+  }
+
+  /* ----- aba de semanas ----- */
+  function abaSemana(){
+    const L = [
+      { cells: [Tc('Semana a semana', 10)] },
+      { cells: [Tc('Serve para quando a data muda mas a semana não: o que estava projetado para sexta e caiu na terça aparece igual aqui.', 9)] },
+      { cells: [Tc(`Grupo: ${gs.map(g => GRUPOS[g]).join(' + ')} · valores em R$ mil · gerado em ${dBRfull(HOJE)}`, 9)] },
+      { cells: [] },
+      { alt: 28, cells: [Tc('Semana', 4),
+          Tc('Entradas anterior', 4), Tc('Entradas atual', 4), Tc('Dif. entradas', 4),
+          Tc('Saídas anterior', 4), Tc('Saídas atual', 4), Tc('Dif. saídas', 4),
+          Tc('Resultado anterior', 4), Tc('Resultado atual', 4), Tc('Dif. resultado', 4),
+          Tc('Oscilação dia a dia', 4), Tc('Situação', 4)] }
+    ];
+    const sems = cmpSemanas(p0, p1);
+    sems.forEach(s => L.push({ cells: [
+      Tc(`${dBR(D.dates[s.i0])} a ${dBR(D.dates[s.i1])}`, 0),
+      Nc(s.entB, 2), Nc(s.entA, 2), Nc(s.entA - s.entB, 3),
+      Nc(-s.saiB, 2), Nc(-s.saiA, 2), Nc(-(s.saiA - s.saiB), 3),
+      Nc(s.resB, 2), Nc(s.resA, 2), Nc(s.difRes, 3),
+      Nc(s.balanco, 2),
+      Tc(s.soData ? 'só mudou de dia'
+        : Math.abs(s.difRes) >= .5 ? (s.difRes > 0 ? 'melhorou' : 'piorou')
+        : (Math.abs(s.entA-s.entB) > .5 || Math.abs(s.saiA-s.saiB) > .5) ? 'girou mais, resultado igual'
+        : 'igual', 0)] }));
+    const T = cmpBloco(p0, p1);
+    L.push({ cells: [Tc('Total do período', 7),
+      Nc(T.entB, 5), Nc(T.entA, 5), Nc(T.entA - T.entB, 5),
+      Nc(-T.saiB, 5), Nc(-T.saiA, 5), Nc(-(T.saiA - T.saiB), 5),
+      Nc(T.resB, 5), Nc(T.resA, 5), Nc(T.resA - T.resB, 5), Tc('', 5), Tc('', 5)] });
+    L.push({ cells: [] });
+    L.push({ cells: [Tc('Oscilação dia a dia = soma das diferenças diárias de resultado, sem deixar os sinais se anularem.', 9)] });
+    L.push({ cells: [Tc('Quando essa oscilação é grande e a diferença da semana é pequena, mudou a data e não o valor.', 9)] });
+    return { nome: 'Semana a semana', linhas: L,
+             larguras: [26,16,16,15,16,16,15,17,17,15,17,17], congelar: { x: 1, y: 5 },
+             paisagem: true, filtro: { linha: 5, cols: 12 } };
+  }
+
+  /* ---------- capa: o recado em uma página ---------- */
+  function abaCapa(topAl){
+    const L = [
+      { alt: 26, cells: [Tc('Comparativo · Fluxo Diário x Ultima Posição', 10)] },
+      { cells: [Tc(`${gs.map(g => GRUPOS[g]).join(' + ')} · ${dBRfull(D.dates[p0])} a ${dBRfull(D.dates[p1])} · valores em R$ mil`, 9)] },
+      { cells: [Tc(`Gerado em ${dBRfull(HOJE)} a partir da base EKO de ${dBRfull(D.meta.dataBase)}`, 9)] },
+      { cells: [] },
+      { cells: [Tc('As duas posições', 12), Tc('', 12), Tc('', 12), Tc('', 12)] },
+      { cells: [Tc('Posição atual · aba "Fluxo Diário"', 0), Tc(`realizada até ${dBRfull(ultFD)}`, 0)] },
+      { cells: [Tc('Posição anterior · aba "Ultima Posição"', 0), Tc(`realizada até ${ultUP ? dBRfull(ultUP) : '—'}`, 0)] },
+      { cells: [] },
+      { alt: 20, cells: [Tc('Números do período', 12), Tc('anterior', 12), Tc('atual', 12), Tc('diferença', 12)] }
+    ];
+    const linha = (rot, b, a, destaque) => L.push({ cells: [Tc(rot, 0), Nc(b, 2), Nc(a, 2),
+      Nc(a - b, destaque ? 16 : 3)] });
+    const PB = cmpBloco(p0, p1);
+    linha('Total de entradas', PB.entB, PB.entA);
+    linha('Total de saídas', -PB.saiB, -PB.saiA);
+    linha('Resultado (entradas − saídas)', PB.resB, PB.resA, true);
+    const ufim = p1;
+    linha(`Caixa final em ${dBR(D.dates[ufim])}`, cmpCaixaFimUP(ufim), cmpCaixaFim(ufim), true);
+    L.push({ cells: [] });
+    L.push({ alt: 20, cells: [Tc('O que olhar primeiro', 12), Tc('', 12), Tc('', 12), Tc('', 12)] });
+    if (!topAl.length) L.push({ cells: [Tc('Nada acima do limite de materialidade neste período.', 9)] });
+    topAl.slice(0, 12).forEach(a => L.push({ cells: [
+      Tc(SEV[a.sev], 0), Tc(a.titulo, 0), Tc(a.detalhe, 0), Nc(a.valor, a.sev === 'alta' ? 11 : 2)] }));
+    L.push({ cells: [] });
+    L.push({ cells: [Tc('A lista completa está na aba "Gargalos"; a linha a linha, na aba "Linhas".', 9)] });
+    L.push({ cells: [Tc('Adiantamento entre os grupos fica de fora de todo o relatório: é transferência interna.', 9)] });
+    return { nome: 'Resumo', linhas: L, larguras: [44, 30, 46, 18] };
+  }
+
+  /* ---------- gargalos: a lista inteira, para filtrar no Excel ---------- */
+  function abaGargalos(todosAl){
+    const L = [
+      { cells: [Tc('Gargalos e divergências', 10)] },
+      { cells: [Tc('Ordenados por peso: quanto vale e quão perto está. Use o filtro do cabeçalho para fatiar.', 9)] },
+      { cells: [Tc(`${gs.map(g => GRUPOS[g]).join(' + ')} · ${dBRfull(D.dates[p0])} a ${dBRfull(D.dates[p1])}`, 9)] },
+      { cells: [] },
+      { alt: 26, cells: [Tc('Gravidade', 4), Tc('Tipo', 4), Tc('Alerta', 4), Tc('Onde / quando', 4),
+                         Tc('Data', 4), Tc('Valor', 4), Tc('Regime', 4)] }
+    ];
+    const TIPO = { dia:'Dia', linha:'Linha', semana:'Semana' };
+    todosAl.forEach(a => {
+      const i = a.tipo === 'dia' ? a.ref : a.tipo === 'semana' ? WEEKS[a.ref].idx[0] : a.pico;
+      L.push({ cells: [
+        Tc(SEV[a.sev], a.sev === 'alta' ? 1 : 0), Tc(TIPO[a.tipo] || a.tipo, 0),
+        Tc(a.titulo, 0), Tc(a.detalhe, 0),
+        i == null ? Tc('', 13) : Nc(serial(D.dates[i]), 13),
+        Nc(a.valor, a.sev === 'alta' ? 11 : 2),
+        Tc(i == null ? '' : (i <= LRI ? 'realizado' : 'projeção'), 0)] });
+    });
+    if (!todosAl.length) L.push({ cells: [Tc('Nenhum gargalo acima do limite de materialidade.', 9)] });
+    return { nome: 'Gargalos', linhas: L, larguras: [13, 10, 46, 52, 12, 14, 12],
+             congelar: { x: 0, y: 5 }, filtro: { linha: 5, cols: 7 }, paisagem: true };
+  }
+
+  /* ---------- linhas: a árvore do ECO, com os grupos do Excel ---------- */
+  function abaLinhas(){
+    const L = [
+      { cells: [Tc('Linha a linha', 10)] },
+      { cells: [Tc('Mesma estrutura da planilha do ECO. Use os botões de agrupamento à esquerda para abrir e fechar os níveis.', 9)] },
+      { cells: [Tc(`${gs.map(g => GRUPOS[g]).join(' + ')} · ${dBRfull(D.dates[p0])} a ${dBRfull(D.dates[p1])}`, 9)] },
+      { cells: [] },
+      { alt: 26, cells: [Tc('Linha', 4), Tc('Caminho', 4), Tc('Anterior', 4), Tc('Atual', 4),
+                         Tc('Diferença', 4), Tc('%', 4), Tc('O que houve', 4)] }
+    ];
+    /* a árvore inteira, sem o que estiver digitado na busca da tela */
+    const busca = CMP.busca; CMP.busca = '';
+    const arv = cmpArvore(p0, p1);
+    CMP.busca = busca;
+
+    (function desce(lista){
+      lista.forEach(x => {
+        const ent = x.n.kind === 'E';
+        const houve = Math.abs(x.dif) < .5 ? 'igual'
+          : x.novo ? 'entrou agora' : x.sumiu ? 'saiu da projeção'
+          : ent ? (x.dif > 0 ? 'entrada maior' : 'entrada menor')
+                : (x.dif > 0 ? 'saída maior' : 'saída menor');
+        const cam = pathOf(x.id).split(' › '); if (cam[cam.length-1] === x.nome) cam.pop();
+        const forte = x.nivel === 0;
+        L.push({ nivel: x.nivel, cells: [
+          Tc('   '.repeat(x.nivel) + x.nome, forte ? 1 : 0),
+          Tc(cam.join(' › '), 0),
+          Nc(x.b, forte ? 3 : 2), Nc(x.a, forte ? 3 : 2), Nc(x.dif, forte ? 3 : 2),
+          x.rel == null ? Tc('', 6) : Nc(x.rel, 6),
+          Tc(houve, 0)] });
+        desce(x.filhos);
+      });
+    })(arv);
+
+    const PB = cmpBloco(p0, p1);
+    L.push({ cells: [Tc('Total de entradas', 7), Tc('', 7), Nc(PB.entB, 5), Nc(PB.entA, 5), Nc(PB.entA - PB.entB, 5), Tc('', 17), Tc('', 7)] });
+    L.push({ cells: [Tc('Total de saídas', 7), Tc('', 7), Nc(PB.saiB, 5), Nc(PB.saiA, 5), Nc(PB.saiA - PB.saiB, 5), Tc('', 17), Tc('', 7)] });
+    L.push({ cells: [Tc('Resultado (entradas − saídas)', 7), Tc('', 7), Nc(PB.resB, 5), Nc(PB.resA, 5), Nc(PB.resA - PB.resB, 5), Tc('', 17), Tc('', 7)] });
+    return { nome: 'Linhas', linhas: L, larguras: [46, 40, 15, 15, 15, 9, 18],
+             congelar: { x: 1, y: 5 }, recuo: true, paisagem: true };
   }
 
   const bytes = XW.livro([
+    abaCapa(alertas),
+    abaGargalos(alertas),
+    abaSemana(),
+    abaLinhas(),
+    abaDif(),
     abaResumo('Fluxo Diário', A, 'Resumo diário · Fluxo Diário',
       `Posição atual da planilha, realizada até ${dBRfull(ultFD)}.`),
     abaResumo('Ultima Posição', B, 'Resumo diário · Ultima Posição',
-      `Posição anterior da planilha, realizada até ${ultUP ? dBRfull(ultUP) : '—'}.`),
-    abaDif()
+      `Posição anterior da planilha, realizada até ${ultUP ? dBRfull(ultUP) : '—'}.`)
   ]);
   XW.baixarXlsx(`comparativo_fluxo-diario_x_ultima-posicao_${carimbo()}.xlsx`, bytes);
   S.versoes.push({ ts: new Date().toISOString(), tipo: 'export', dataBase: D.meta.dataBase,
