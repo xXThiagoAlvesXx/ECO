@@ -181,6 +181,11 @@ tr.tot td{font-weight:600;background:var(--tab-hover);border-top:1px solid var(-
 .cp-al .v{font-family:var(--num);font-size:14px;font-weight:600;margin-top:5px;display:block}
 .cp-al .v.pos{color:var(--pos)} .cp-al .v.neg{color:var(--red)}
 .cp-alnone{padding:18px 4px 22px;text-align:center;color:var(--ink3);font-size:12.5px}
+.cp-gs{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:4px 22px 0}
+@media(max-width:980px){.cp-gs{grid-template-columns:1fr}}
+.cp-gt{font-size:12px;color:var(--ink2);margin-bottom:4px}
+.cp-bar{cursor:pointer;transition:opacity .12s}
+.cp-bar:hover{opacity:.72}
 #cpDias td:first-child,#cpSem td:first-child,#cpDias th:first-child,#cpSem th:first-child{white-space:nowrap}
 /* muitas colunas: aperta o espaçamento para caber sem rolagem lateral */
 #cpSem td,#cpDias td{padding:10px 9px;font-size:13px}
@@ -936,8 +941,12 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
       <div class="filters">
         <div class="fld"><label for="cpDe">De</label><input type="date" id="cpDe" class="inp"></div>
         <div class="fld"><label for="cpAte">Até</label><input type="date" id="cpAte" class="inp"></div>
+        <div class="fld"><label>Trava gerencial no saldo</label>
+          <span class="seg" id="cpGerSeg">
+            <button data-g="1" class="on">Descontar</button><button data-g="0">Somar de volta</button>
+          </span></div>
         <div class="fld"><label for="cpLim">Alerta de caixa livre abaixo de (R$ mil)</label>
-          <input type="number" id="cpLim" class="inp" step="500" style="width:150px"></div>
+          <input type="number" id="cpLim" class="inp" step="500" style="width:140px"></div>
         <div class="fld"><label>Relatório</label>
           <button class="btn sec" id="cpXls">Baixar em Excel</button></div>
       </div>
@@ -972,6 +981,23 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
           <div class="tw" id="cpWrapLinhas" style="display:none"><table class="tree" id="cpLinhas"></table></div>
           <div class="bd"><p class="hint" id="cpDica" style="margin:0"></p></div>
         </div>
+
+        <div class="block">
+          <h3>Onde está a diferença<span class="sub" id="cpGrafN"></span></h3>
+          <div class="cp-gs">
+            <div>
+              <div class="cp-gt">Diferença no caixa final, dia a dia</div>
+              <div id="cpG1"></div>
+            </div>
+            <div>
+              <div class="cp-gt">Linhas que mais divergiram no recorte</div>
+              <div id="cpG2"></div>
+            </div>
+          </div>
+          <div class="bd"><p class="hint" style="margin:0">Os dois gráficos seguem o período, o grupo e o recorte escolhidos.
+            Clique numa barra de dia para filtrar a aba naquele dia; clique numa barra de linha para filtrar a tabela naquela linha.
+            Clicar de novo na mesma barra desfaz.</p></div>
+        </div>
       </div>
 
       <aside class="cp-rail">
@@ -981,6 +1007,7 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
             <span class="seg" id="cpAlSeg">
               <button data-a="crit" class="on">Críticos</button><button data-a="todos">Todos</button>
             </span>
+            <button class="btn sec sm" id="cpAlVolta" style="display:none">Voltar ao período</button>
           </h3>
           <div class="cp-als" id="cpAlertas"></div>
         </div>
@@ -3688,64 +3715,157 @@ function resPorNome(nomes, raizKind, i){
   });
   return t;
 }
+/* O fee do Akofs mora dentro da Receita Líquida, mas tem linha própria no
+   resumo da Tesouraria — então sai daqui para não ser contado duas vezes. */
+const RES_REC_FORA = ['Offshore - Akofs - Fee/Custos'];
 function resReceita(i, estaleiro){
   let t = 0;
   grupos().forEach(g => {
     const rec = g === 'MAR' ? 'MREC' : 'REC';
     (KIDS[rec] || []).forEach(id => {
+      if (RES_REC_FORA.includes(NODE[id].nome)) return;
       const ehEst = NODE[id].nome === 'Estaleiro';
       if (ehEst === !!estaleiro) t += nodeTot(id, i, i) * dispSign(NODE[id]);
     });
   });
   return t;
 }
-/* trava e destrava lançadas à mão, movimento do dia */
-function resTravaDia(i, cat){
+/* a contrapartida: o que a receita deixou de somar */
+function resAkofsEnt(i){
+  let t = 0;
+  grupos().forEach(g => {
+    const rec = g === 'MAR' ? 'MREC' : 'REC';
+    (KIDS[rec] || []).forEach(id => {
+      if (RES_REC_FORA.includes(NODE[id].nome)) t += nodeTot(id, i, i) * dispSign(NODE[id]);
+    });
+  });
+  return t;
+}
+/* trava e destrava lançadas à mão, movimento do dia.
+   dir = 'trava' | 'destrava' | vazio para as duas juntas (valor sempre positivo) */
+function resTravaDia(i, cat, dir){
   let t = 0;
   for (const e of S.entries){
     if (e.cls !== 'trava' && e.cls !== 'destrava') continue;
+    if (dir && e.cls !== dir) continue;
     if (e.off || DIDX[e.dt] !== i) continue;
     if (!grupos().includes(e.grp || 'BVT')) continue;
     if ((e.tcat || 'banco') !== cat) continue;
-    t += (e.cls === 'trava' ? -1 : 1) * e.val;
+    t += dir ? e.val : (e.cls === 'trava' ? -1 : 1) * e.val;
   }
   return t;
 }
 
-/* definição das linhas, na ordem da planilha */
+/* soma filhos escolhidos de uma categoria do desembolso.
+   Procura a categoria entre os filhos da raiz, e não pelo nome solto: há
+   segmentos com o mesmo nome (Corporativo, Offshore) espalhados na árvore. */
+function resSubDe(catNome, nomes, i, raizKind){
+  let t = 0;
+  grupos().forEach(g => {
+    const raiz = ROOT[g][raizKind || 'S'];
+    (KIDS[raiz] || []).forEach(id => {
+      if (NODE[id].nome !== catNome) return;
+      (KIDS[id] || []).forEach(c => { if (nomes.includes(NODE[c].nome)) t += nodeTot(c, i, i); });
+    });
+  });
+  return t;
+}
+
+/* O que sobra do desembolso e não tem linha própria na planilha da Tesouraria.
+   Ficam de fora só o mútuo (movimentação financeira que não mexe no saldo) e
+   o adiantamento entre os grupos (troca de bolso dentro de casa). O fee do
+   Akofs nas saídas entra aqui: não é a linha Akofs/Way/HLB do resumo.        */
+const RES_FORA = ['Fundo Fixo - Mútuo', 'Adiantamento Marlin', 'Adiantamento NVM'];
+function resOutrasSai(i){
+  let t = 0;
+  grupos().forEach(g => {
+    (KIDS[ROOT[g].S] || []).forEach(id => {
+      const cat = NODE[id].nome;
+      if (cat !== 'Outras Saídas' && cat !== 'Corporativo') return;
+      (KIDS[id] || []).forEach(c => {
+        const n = NODE[c].nome;
+        if (RES_FORA.includes(n)) return;
+        if (cat === 'Corporativo' && (n === 'Despesas Financeiras' || n === 'Siscomex')) return;
+        t += nodeTot(c, i, i);
+      });
+    });
+  });
+  return t;
+}
+
+/* As linhas e a ordem da planilha da Tesouraria. As de tipo 'grupo' são
+   subtotais: não se editam e não entram na conta — somam os próprios filhos. */
 const RES_LINHAS = [
-  { k:'receita',   nome:'Receita',                         sinal:+1, auto:i => resReceita(i,false) },
-  { k:'estaleiro', nome:'Receita Estaleiro',               sinal:+1, auto:i => resReceita(i,true) },
-  { k:'antecip',   nome:'Antecipação de recebíveis',       sinal:+1, auto:i => resPorNome(['Antecipações Recebíveis'],'E',i) },
-  { k:'captacao',  nome:'Nova captação',                   sinal:+1, auto:i => resPorNome(['Captações'],'E',i) },
-  { k:'adiant',    nome:'Adiantamento entre grupos',       sinal:+1, auto:i => resPorNome(['Adiantamento Marlin','Adiantamento NVM'],'E',i) },
-  { k:'outrasent', nome:'Outras entradas',                 sinal:+1, auto:i => resPorNome(['Outras Entradas'],'E',i) },
-  { k:'dp',        nome:'DP · custos com pessoal',         sinal:-1, auto:i => resPorNome(['Custos Pessoais'],'S',i) },
-  { k:'cap',       nome:'CAP · fornecedores e câmbio',     sinal:-1, auto:i => resPorNome(
-        ['Fornecedores - Opex','Fornec. Opex Represados','Fornecedores - Capex','Fornec. Capex Represados','Câmbio Opex','Câmbio Capex'],'S',i) },
-  { k:'kagiro',    nome:'Dívida · Kagiro e antecipação',   sinal:-1, auto:i => resPorNome(['Dívida'],'S',i), drill:['S228','MS138'] },
-  { k:'imposto',   nome:'Imposto',                         sinal:-1, auto:i => resPorNome(['Impostos'],'S',i) },
-  { k:'debaut',    nome:'Débito automático',               sinal:-1, auto:i => resPorNome(['Débito Automático'],'S',i) },
-  { k:'corp',      nome:'Corporativo e despesas financeiras', sinal:-1, auto:i => resPorNome(['Corporativo'],'S',i) },
-  { k:'outrassai', nome:'Outras saídas',                   sinal:-1, auto:i => resPorNome(['Outras Saídas'],'S',i), drill:['S268','MS164'] },
-  { k:'travab',    nome:'Trava / destrava bancária',       sinal:+1, auto:i => resTravaDia(i,'banco') },
-  { k:'travag',    nome:'Trava / destrava gerencial',      sinal:+1, auto:i => resTravaDia(i,'ger') },
-  { k:'ajuste',    nome:'Ajuste',                          sinal:+1, auto:() => 0, manualOnly:true },
+  { k:'gEnt',      nome:'Entradas de Receita e Outras',   tipo:'grupo', sinal:+1 },
+  { k:'receita',   nome:'Receita',                   pai:'gEnt', sinal:+1, auto:i => resReceita(i,false) },
+  { k:'estaleiro', nome:'Receita Estaleira',         pai:'gEnt', sinal:+1, auto:i => resReceita(i,true) },
+  { k:'captacao',  nome:'Captação',                  pai:'gEnt', sinal:+1, auto:i => resPorNome(['Captações'],'E',i) },
+  { k:'antecip',   nome:'Antecipações',              pai:'gEnt', sinal:+1, auto:i => resPorNome(['Antecipações Recebíveis'],'E',i) },
+  { k:'akofsEnt',  nome:'Akofs/Way/HLB',             pai:'gEnt', sinal:+1, auto:i => resAkofsEnt(i) },
+
+  { k:'travag',    nome:'Trava Gerencial',                sinal:-1, auto:i => resTravaDia(i,'ger','trava') },
+
+  { k:'gDp',       nome:'Custo Pessoais',                 tipo:'grupo', sinal:-1 },
+  { k:'folha',     nome:'Folha e PJ',                pai:'gDp', sinal:-1, auto:i => resSubDe('Custos Pessoais',
+        ['Folha - Líquida - CLT','Folha - Líquida - CLT - Pensão','Folha - PJs - Diretores e Gerentes'], i) },
+  { k:'ferias',    nome:'Férias e rescisão',         pai:'gDp', sinal:-1, auto:i => resSubDe('Custos Pessoais',
+        ['Férias/Rescisões','Férias/Rescisões - Pensão'], i) },
+  { k:'benef',     nome:'Benefícios (V. Transp. + Refeição)', pai:'gDp', sinal:-1, auto:i => resSubDe('Custos Pessoais',
+        ['Vale Refeição','Vale Transporte'], i) },
+  { k:'saude',     nome:'Plano de Saúde',            pai:'gDp', sinal:-1, auto:i => resSubDe('Custos Pessoais', ['Plano de Saúde'], i) },
+  { k:'fgts',      nome:'FGTS / INSS/IR',            pai:'gDp', sinal:-1, auto:i => resSubDe('Custos Pessoais', ['FGTS','INSS/IR Folha'], i) },
+
+  { k:'debaut',    nome:'Débito Aut.',                    sinal:-1, auto:i => resPorNome(['Débito Automático'],'S',i) },
+
+  { k:'gDiv',      nome:'Dívida e Antecipações',          tipo:'grupo', sinal:-1 },
+  { k:'emprest',   nome:'Empréstimos',               pai:'gDiv', sinal:-1, auto:i => resSubDe('Dívida', ['Dívida - Capital de Giro e outros'], i) },
+  { k:'antecsai',  nome:'Antecipação',               pai:'gDiv', sinal:-1, auto:i => resSubDe('Dívida', ['Dívida - Antecipação de Recebíveis'], i) },
+
+  { k:'despfin',   nome:'Despesas financeira',            sinal:-1, auto:i => resSubDe('Corporativo', ['Despesas Financeiras'], i) },
+  { k:'destravag', nome:'Destrava Gerencial',             sinal:+1, auto:i => resTravaDia(i,'ger','destrava') },
+
+  { k:'gDes',      nome:'Desembolsos - Fornecedores e Outro', tipo:'grupo', sinal:-1 },
+  { k:'cap',       nome:'CAP - Diário',              pai:'gDes', sinal:-1, auto:i => resPorNome(
+        ['Fornecedores - Opex','Fornec. Opex Represados','Fornecedores - Capex','Fornec. Capex Represados'],'S',i) },
+  { k:'cambio',    nome:'Câmbio',                    pai:'gDes', sinal:-1, auto:i => resPorNome(['Câmbio Opex','Câmbio Capex'],'S',i) },
+  { k:'comex',     nome:'Comex',                     pai:'gDes', sinal:-1, auto:i => resSubDe('Corporativo', ['Siscomex'], i) },
+  { k:'imposto',   nome:'Imposto',                   pai:'gDes', sinal:-1, auto:i => resPorNome(['Impostos'],'S',i) },
+  { k:'akofsSai',  nome:'Akofs/Way/HLB',             pai:'gDes', sinal:-1, auto:() => 0, manualOnly:true },
+  { k:'outrassai', nome:'Outras saídas',             pai:'gDes', sinal:-1, auto:i => resOutrasSai(i) },
+
+  { k:'ajuste',    nome:'Ajuste',                         sinal:+1, auto:() => 0, manualOnly:true },
 ];
+/* Quadro separado no rodapé: os blocos de conta especial do ECO, do grupo ativo.
+   São saldos, não movimento, e não entram no total do dia.                      */
+function resEspeciais(){
+  const gs = grupos();
+  return Object.entries(D.blocks || {})
+    .filter(([, b]) => gs.includes(b.grp))
+    .map(([k, b]) => ({ k: 'bl_' + k, nome: b.nome, serie: b.serie || [] }));
+}
+const resFilhosDe = k => RES_LINHAS.filter(L => L.pai === k);
+const resGrupoVal = (i, L) => resFilhosDe(L.k).reduce((a, F) => a + resValor(i, F).usado, 0);
 
 const resChave = i => `${S.grp}|${D.dates[i]}`;
 const resGet = i => (S.resumos || {})[resChave(i)] || null;
 /* O saldo inicial vem sempre do ECO: caixa livre do dia anterior.
    Nunca encadeia do Total do resumo anterior — o resumo não alimenta a si mesmo. */
+/* O saldo inicial é o caixa livre do dia anterior SEM descontar a trava gerencial:
+   no dia a dia a Tesouraria usa esse dinheiro. A trava bancária continua fora. */
 function resSaldoInicialAuto(i){
-  return i > 0 ? F.livre[i-1] : F.ini[0];
+  return i > 0 ? F.livreBanco[i-1] : F.ini[0];
 }
+/* O que aparece na célula já vem com sinal (saída negativa), e é assim que a
+   Tesouraria digita. Internamente a conta usa magnitude e o sinal da linha —
+   por isso o valor digitado é convertido na entrada e na saída.            */
 function resValor(i, L){
   const r = resGet(i);
-  const manual = r && r.linhas && r.linhas[L.k] && r.linhas[L.k].manual;
+  const bruto = r && r.linhas && r.linhas[L.k] && r.linhas[L.k].manual;
+  const vazio = bruto === undefined || bruto === null || bruto === '';
   const auto = L.auto(i);
-  return { auto, manual: (manual === undefined || manual === null || manual === '') ? null : +manual,
-           usado: (manual === undefined || manual === null || manual === '') ? auto : +manual,
+  const manual = vazio ? null : +bruto;
+  return { auto, manual,
+           usado: vazio ? auto : manual * (L.sinal || 1),
            obs: (r && r.linhas && r.linhas[L.k] && r.linhas[L.k].obs) || '' };
 }
 function resCalcula(i){
@@ -3756,6 +3876,7 @@ function resCalcula(i){
   const si = (siMan == null ? siAuto : siMan) - margem;
   let ent = 0, sai = 0;
   RES_LINHAS.forEach(L => {
+    if (L.tipo === 'grupo') return;          // subtotal: já está nos filhos
     const v = resValor(i, L).usado;
     if (L.sinal > 0) ent += v; else sai += v;
   });
@@ -3780,7 +3901,7 @@ function renderResumo(){
       r.alteradoEm ? ` · alterado por ${esc(r.alteradoPor || '—')} em ${new Date(r.alteradoEm).toLocaleString('pt-BR')}` : ''}</span>` : ''}`;
 
   $('rsKpis').innerHTML =
-    kpi('Saldo inicial considerado', c.si, c.margem ? `caixa livre menos margem de ${fMil(c.margem)}` : 'caixa livre do dia anterior', {hero:true}) +
+    kpi('Saldo inicial considerado', c.si, c.margem ? `com a trava gerencial, menos margem de ${fMil(c.margem)}` : 'caixa livre do dia anterior, com a trava gerencial', {hero:true}) +
     kpi('Total de entradas', c.ent, '') +
     kpi('Total de saídas', -c.sai, '') +
     kpi('Saldo final projetado', c.total, c.total < 0 ? 'atenção: saldo negativo' : '', {warn: c.total < 0});
@@ -3796,26 +3917,59 @@ function renderResumo(){
   h += `<tr class="tot"><td>Saldo inicial</td>${dias.map(k => {
       const cc = resCalcula(k);
       return `<td class="n"><input class="just rssi" data-i="${k}" style="text-align:right"
-        value="${cc.siMan == null ? '' : cc.siMan}" placeholder="${fMil(cc.siAuto)}"></td>`;
-    }).join('')}<td class="mut" style="font-size:11px">caixa livre do dia anterior, vindo do ECO</td></tr>`;
+        value="${cc.siMan == null ? '' : cc.siMan}" placeholder="${Math.abs(cc.siAuto) < .5 ? '—' : fMil(cc.siAuto)}"></td>`;
+    }).join('')}<td class="mut" style="font-size:11px">caixa livre do dia anterior somando a trava gerencial, vindo do ECO</td></tr>`;
 
   RES_LINHAS.forEach(L => {
+    /* subtotal: soma os próprios filhos, não se edita */
+    if (L.tipo === 'grupo'){
+      h += `<tr class="tot"><td><b>${esc(L.nome)}</b></td>${dias.map(k => {
+        const v = resGrupoVal(k, L);
+        return `<td class="n">${Math.abs(v) < .5 ? '<span class="mut">—</span>' : `<b>${fMil(v * L.sinal)}</b>`}</td>`;
+      }).join('')}<td></td></tr>`;
+      return;
+    }
     const v = resValor(i, L);
-    const temDrill = L.drill && L.drill.some(id => NODE[id]);
-    h += `<tr class="${temDrill ? 'clik' : ''}" ${temDrill ? `data-rs="${L.k}"` : ''}>
-      <td>${temDrill ? `<span class="tg b">${RES.aberto.has(L.k) ? '▾' : '▸'}</span>` : '<span class="tg"></span>'}${esc(L.nome)}</td>`;
+    const filho = !!L.pai;
+    h += `<tr><td style="padding-left:${filho ? 34 : 14}px">${esc(L.nome)}${
+      L.manualOnly ? ' <span class="bdg at">à mão</span>' : ''}</td>`;
     dias.forEach(k => {
       const vv = resValor(k, L);
       h += `<td class="n"><input class="just rsv" data-k="${L.k}" data-i="${k}" style="text-align:right"
-              value="${vv.manual == null ? '' : vv.manual}" placeholder="${fMil(vv.auto * L.sinal)}"></td>`;
+              value="${vv.manual == null ? '' : vv.manual}" placeholder="${
+                L.manualOnly || Math.abs(vv.auto) < .5 ? '—' : fMil(vv.auto * L.sinal)}"></td>`;
     });
     h += `<td><input class="just rso" data-k="${L.k}" value="${esc(v.obs)}" placeholder="—"></td></tr>`;
-    if (temDrill && RES.aberto.has(L.k)) h += resDrillHTML(L, dias, i);
   });
 
-  h += `<tr class="tot"><td><b>Total · saldo final projetado</b></td>${dias.map(k => {
+  h += `<tr class="tot"><td><b>Total</b></td>${dias.map(k => {
       const cc = resCalcula(k);
       return `<td class="n ${cls(cc.total)}"><b>${fMil(cc.total)}</b></td>`;
+    }).join('')}<td></td></tr>`;
+
+  /* Empresas · contas especiais — quadro à parte, fora do total do dia */
+  h += `<tr><td colspan="${dias.length + 2}" style="height:14px;border:0"></td></tr>`;
+  h += `<tr class="tot"><td><b>Empresas · Contas Especiais</b></td>${dias.map(k =>
+      `<td class="n mut" style="font-size:11px">${dBR(D.dates[k])}</td>`).join('')}<td></td></tr>`;
+  const esp = resEspeciais();
+  esp.forEach(E => {
+    h += `<tr><td style="padding-left:34px">${esc(E.nome)}</td>`;
+    dias.forEach(k => {
+      const rk = resGet(k), val = (rk && rk.linhas && rk.linhas[E.k] && rk.linhas[E.k].manual);
+      const auto = E.serie[k] || 0;
+      h += `<td class="n"><input class="just rsv" data-k="${E.k}" data-i="${k}" style="text-align:right"
+              value="${val == null || val === '' ? '' : esc(val)}"
+              placeholder="${Math.abs(auto) < .5 ? '—' : fMil(auto)}"></td>`;
+    });
+    h += `<td></td></tr>`;
+  });
+  h += `<tr class="tot"><td>Total das contas especiais</td>${dias.map(k => {
+      const rk = resGet(k);
+      const t = esp.reduce((a, E) => {
+        const m = rk && rk.linhas && rk.linhas[E.k] && rk.linhas[E.k].manual;
+        return a + (m == null || m === '' ? (E.serie[k] || 0) : (+m || 0));
+      }, 0);
+      return `<td class="n">${Math.abs(t) < .5 ? '<span class="mut">—</span>' : `<b>${fMil(t)}</b>`}</td>`;
     }).join('')}<td></td></tr></tbody>`;
   $('rsTabela').innerHTML = h;
 
@@ -3922,7 +4076,7 @@ function resEventos(){
    trocando de bolso dentro de casa, não entra nem sai do caixa consolidado. */
 
 const CMP = { periodo: 'mes', i0: null, i1: null, dia: null, sem: null,
-              vista: 'sem', alerta: 'crit', alvo: null,
+              vista: 'sem', alerta: 'crit', alvo: null, ger: true,
               aberto: null, busca: '', ordem: 'dif', dir: 'desc', so: 'mud', fora: {} };
 
 const CMP_FORA = ['Adiantamento Marlin', 'Adiantamento NVM'];
@@ -3971,6 +4125,14 @@ function cmpBloco(i0, i1){
 const cmpCaixaFim = i => cmpGrupos().reduce((a,g) => a + (D.saldo[g].caixaFim[i] || 0), 0);
 const cmpCaixaFimUP = i => cmpGrupos().reduce((a,g) => a + (((D.saldoUP[g]||{}).caixaFim || [])[i] || 0), 0);
 const cmpCaixaLivre = i => cmpGrupos().reduce((a,g) => a + ((D.saldo[g].caixaLivre || [])[i] || 0), 0);
+const cmpCaixaLivreUP = i => cmpGrupos().reduce((a,g) => a + (((D.saldoUP[g]||{}).caixaLivre || [])[i] || 0), 0);
+const cmpTravaGer = i => cmpGrupos().reduce((a,g) => a + ((D.saldo[g].travasCli || [])[i] || 0), 0);
+const cmpTravaGerUP = i => cmpGrupos().reduce((a,g) => a + (((D.saldoUP[g]||{}).travasCli || [])[i] || 0), 0);
+/* A trava bancária sempre fica de fora do saldo: aquele dinheiro não é nosso para gastar.
+   Já a gerencial é uma decisão de casa, então ela entra ou sai conforme o botão.      */
+const cmpLivre   = i => cmpCaixaLivre(i)   + (CMP.ger ? 0 : cmpTravaGer(i));
+const cmpLivreUP = i => cmpCaixaLivreUP(i) + (CMP.ger ? 0 : cmpTravaGerUP(i));
+const cmpRotLivre = () => CMP.ger ? 'Caixa livre' : 'Caixa livre + trava gerencial';
 
 function cmpIntervalo(){
   if (CMP.periodo === 'mes'){ const m = MONTHS[MOF[TI]]; return [m.idx[0], m.idx[m.idx.length-1]]; }
@@ -4012,12 +4174,16 @@ function cmpArvore(i0, i1){
     const a = bA - exA, b = bB - exB, dif = a - b;
     const achou = meu || filhos.some(f => f.achou);
     const mudou = Math.abs(dif) > .5 || filhos.some(f => f.mudou);
+    /* Nos desembolsos a leitura para no subtítulo — Fornecedores, Câmbio, DP e afins.
+       Os segmentos ficam escondidos; só a Dívida abre mais um nível, em Capital de
+       Giro e Antecipação. Nas entradas nada muda.                                  */
+    const abre = n.kind !== 'S' || nivel === 0 || (nivel === 1 && n.nome === 'Dívida');
     return { id, n, nome: n.nome, nivel, a, b, dif, mudou, achou, exA, exB,
              visivel: !q || achou,
              rel: Math.abs(b) < .005 ? null : dif / Math.abs(b),
              novo: Math.abs(b) < .005 && Math.abs(a) > .005,
              sumiu: Math.abs(a) < .005 && Math.abs(b) > .005,
-             filhos: filhos.filter(f => f.visivel) };
+             filhos: abre ? filhos.filter(f => f.visivel) : [] };
   }
   return cmpRaizes().map(id => monta(id, 0, false)).filter(x => !x.excl && x.visivel);
 }
@@ -4082,21 +4248,34 @@ function cmpGargalos(p0, p1, i0, i1){
   const a0 = focado ? i0 : p0, a1 = focado ? i1 : p1;
   const TP = cmpBloco(p0, p1);
   const mat = Math.max(250, (TP.entA + TP.saiA) * .015);   // o que é material neste período
-  const peso = i => { const d = i - TI; return d <= 5 ? 1 : d <= 15 ? .8 : d <= 35 ? .55 : .35; };
+  /* o que já passou não é mais gargalo: continua na lista, mas no fim dela */
+  const peso = i => { const d = i - TI;
+    if (d < -5) return .10;
+    if (d < 0)  return .35;
+    return d <= 5 ? 1 : d <= 15 ? .8 : d <= 35 ? .55 : .35; };
   const sev = v => Math.abs(v) >= mat * 3 ? 'alta' : Math.abs(v) >= mat ? 'media' : 'baixa';
   const out = [], caixaJaAvisado = new Set();
   const lim = +(S.lim || 0);
 
-  /* 1. caixa apertado na posição atual — o gargalo de verdade */
+  /* 1. caixa apertado — o gargalo de verdade.
+        Num dia já realizado isso é história, não risco: entra como informativo. */
   for (let i = a0; i <= a1; i++){
-    const livre = cmpCaixaLivre(i);
+    const livre = cmpLivre(i);
     if (livre >= lim) continue;
     caixaJaAvisado.add(i);
-    out.push({ tipo:'dia', ref:i, sev: livre < 0 ? 'alta' : 'media',
-      titulo: livre < 0 ? 'Caixa livre negativo' : 'Caixa livre abaixo do limite',
-      detalhe: `${dBRfull(D.dates[i])} · ${dow(D.dates[i])}${i > LRI ? ' · projeção' : ' · realizado'}`,
+    /* já realizado, ou projetado para um dia que o calendário já passou:
+       nos dois casos não é mais risco, é história — e no segundo denuncia base atrasada */
+    const realizado = i <= LRI, vencido = !realizado && i < TI;
+    const passou = realizado || vencido;
+    const rot = CMP.ger ? 'Caixa livre' : 'Caixa livre (sem a trava gerencial)';
+    out.push({ tipo:'dia', ref:i,
+      sev: passou ? 'baixa' : (livre < 0 ? 'alta' : 'media'),
+      titulo: (livre < 0 ? `${rot} negativo` : `${rot} abaixo do limite`)
+        + (realizado ? ' · já realizado' : vencido ? ' · dia já passou' : ''),
+      detalhe: `${dBRfull(D.dates[i])} · ${dow(D.dates[i])}${
+        realizado ? ' · realizado' : vencido ? ' · projeção vencida' : ' · projeção'}`,
       valor: livre, bom: false, sinal: false,
-      score: (Math.abs(livre) + mat * 2) * peso(i) * (livre < 0 ? 2.2 : 1) });
+      score: (Math.abs(livre) + mat * 2) * peso(i) * (livre < 0 ? 2.2 : 1) * (passou ? .25 : 1) });
   }
 
   /* 2. dias em que o caixa final piorou contra a posição anterior */
@@ -4104,7 +4283,7 @@ function cmpGargalos(p0, p1, i0, i1){
     if (caixaJaAvisado.has(i)) continue;
     const dif = cmpCaixaFim(i) - cmpCaixaFimUP(i);
     if (dif > -mat) continue;
-    out.push({ tipo:'dia', ref:i, sev: sev(dif),
+    out.push({ tipo:'dia', ref:i, sev: i < TI ? 'baixa' : sev(dif),
       titulo:'Caixa final piorou', valor: dif, bom:false,
       detalhe: `${dBRfull(D.dates[i])} · ${dow(D.dates[i])} · antes ${fMil(cmpCaixaFimUP(i))}`,
       score: Math.abs(dif) * peso(i) });
@@ -4181,6 +4360,8 @@ function renderComparativo(){
   const [i0, i1] = cmpFoco();
   $('cpDe').value = D.dates[p0]; $('cpAte').value = D.dates[p1];
   if ($('cpLim') !== document.activeElement) $('cpLim').value = S.lim;
+  document.querySelectorAll('#cpGerSeg button').forEach(b =>
+    b.classList.toggle('on', (b.dataset.g === '1') === CMP.ger));
 
   const ultUP = gs.map(g => info[g].ultimoRealizado).filter(Boolean).sort()[0];
   const ultFD = gs.map(g => (g === 'MAR' ? D.meta.ultimoRealizadoMAR : D.meta.ultimoRealizadoBVT) || D.meta.ultimoRealizado)
@@ -4192,6 +4373,8 @@ function renderComparativo(){
 
   const focoTxt = CMP.dia != null ? `${dBRfull(D.dates[CMP.dia])}, ${dow(D.dates[CMP.dia])}`
     : CMP.sem != null ? `a semana de ${dBR(D.dates[i0])} a ${dBR(D.dates[i1])}` : '';
+  const focoCurto = CMP.dia != null ? dBR(D.dates[CMP.dia])
+    : CMP.sem != null ? `${dBR(D.dates[i0])} a ${dBR(D.dates[i1])}` : '';
   $('cpFoco').innerHTML = !focoTxt ? '' :
     `<div class="alert m" style="margin-bottom:12px"><span class="w">
       <b>Mostrando só ${focoTxt}.</b>
@@ -4223,8 +4406,8 @@ function renderComparativo(){
     const a = D.saldo[g], b = (D.saldoUP || {})[g] || {};
     const p = (o,k,i) => (o && o[k] && o[k][i] != null) ? o[k][i] : 0;
     fimA += p(a,'caixaFim',i1); fimB += p(b,'caixaFim',i1);
-    livA += p(a,'caixaLivre',i1); livB += p(b,'caixaLivre',i1);
   });
+  livA = cmpLivre(i1); livB = cmpLivreUP(i1);
   const dd = (a, b) => a - b;
   const pct = (x, base) => Math.abs(base) < .005 ? '' : ` · ${(x/Math.abs(base)*100>=0?'+':'')}${(x/Math.abs(base)*100).toFixed(1)}%`;
   const maisMenos = x => Math.abs(x) < .5 ? 'sem mudança' : x > 0 ? `${fMil(x)} a mais` : `${fMil(-x)} a menos`;
@@ -4237,8 +4420,9 @@ function renderComparativo(){
     kpi('Total de saídas', -BL.saiA, `antes ${fMil(-BL.saiB)} · ${maisMenos(dd(BL.saiA,BL.saiB))}`) +
     kpi('Resultado (entradas − saídas)', BL.resA, `antes ${fMil(BL.resB)} · ${dd(BL.resA,BL.resB)>=0?'+':''}${fMil(dd(BL.resA,BL.resB))}`,
         {warn: BL.resA < 0}) +
-    kpi('Mudança no caixa livre', dd(livA,livB), `agora ${fMil(livA)} · antes ${fMil(livB)}`,
-        {warn: dd(livA,livB) < 0});
+    kpi(`${cmpRotLivre()} em ${dBR(D.dates[i1])}`, livA, `antes ${fMil(livB)} · ${
+      Math.abs(livA-livB) < .5 ? 'sem mudança' : (livA-livB > 0 ? '+' : '') + fMil(livA-livB)}`,
+        {warn: livA < 0});
 
   /* subir é bom para entradas, caixa e resultado; para saídas é o contrário */
   const col3 = (a, b, subirEhBom) => {
@@ -4353,7 +4537,11 @@ function renderComparativo(){
   };
   t += totLinha('Total de entradas', BL.entA, BL.entB, true)
      + totLinha('Total de saídas', BL.saiA, BL.saiB, false)
-     + totLinha('Resultado (entradas − saídas)', BL.resA, BL.resB, true);
+     + totLinha('Resultado (entradas − saídas)', BL.resA, BL.resB, true)
+     /* saldos no último dia do recorte: a trava bancária já saiu dos dois */
+     + totLinha(`Caixa livre em ${dBR(D.dates[i1])}`, cmpCaixaLivre(i1), cmpCaixaLivreUP(i1), true)
+     + totLinha(`Caixa livre + trava gerencial em ${dBR(D.dates[i1])}`,
+                cmpCaixaLivre(i1) + cmpTravaGer(i1), cmpCaixaLivreUP(i1) + cmpTravaGerUP(i1), true);
   $('cpLinhas').innerHTML = t + '</tbody>';
 
   /* ---- qual vista está na tela ---- */
@@ -4376,14 +4564,23 @@ function renderComparativo(){
   : V === 'dias' ? `Clique em um dia para ver a aba inteira só com aquele dia.`
                  : `Mesma estrutura da planilha do ECO: clique na linha para abrir os segmentos e as embarcações. Clique no título de uma coluna para ordenar.`;
 
+  /* ---- gráficos ---- */
+  cmpGrafDias($('cpG1'), p0, p1);
+  cmpGrafLinhas($('cpG2'), i0, i1);
+  $('cpGrafN').textContent = focoCurto
+    ? `dia a dia no período · linhas de ${focoCurto}`
+    : `${dBR(D.dates[p0])} a ${dBR(D.dates[p1])}`;
+
   /* ---- alertas ---- */
   const gar = cmpGargalos(p0, p1, i0, i1);
   const todosAl = cmpFocado() || CMP.alerta === 'todos';
   const mostra = todosAl ? gar.slice(0, 40) : gar.filter(a => a.sev !== 'baixa').slice(0, 8);
   const nAlta = gar.filter(a => a.sev === 'alta').length;
-  $('cpAlertaN').textContent = !gar.length ? 'nada a destacar'
-    : cmpFocado() ? `${gar.length} neste recorte`
+  $('cpAlertaN').innerHTML = !gar.length
+    ? (cmpFocado() ? `nada em ${esc(focoCurto)}` : 'nada a destacar')
+    : cmpFocado() ? `${gar.length} em <b>${esc(focoCurto)}</b>`
     : `${mostra.length} de ${gar.length}${nAlta ? ` · ${nAlta} crítico(s)` : ''}`;
+  $('cpAlVolta').style.display = cmpFocado() ? '' : 'none';
   document.querySelectorAll('#cpAlSeg button').forEach(b => b.classList.toggle('on', b.dataset.a === CMP.alerta));
 
   $('cpAlertas').innerHTML = mostra.length ? mostra.map(a => {
@@ -4395,6 +4592,95 @@ function renderComparativo(){
   }).join('') : `<div class="cp-alnone">${cmpFocado()
       ? 'Nenhum gargalo nesse recorte.'
       : 'Nada acima do limite de materialidade neste período.'}</div>`;
+}
+
+/* ---------------- gráficos ----------------
+   Barras clicáveis: o gráfico lê os filtros e também os aciona.          */
+function cmpGrafDias(el, p0, p1){
+  const n = p1 - p0 + 1;
+  const vals = []; for (let i = p0; i <= p1; i++) vals.push(cmpCaixaFim(i) - cmpCaixaFimUP(i));
+  if (!n || vals.every(v => Math.abs(v) < .5)){
+    el.innerHTML = '<div class="empty">Nenhuma diferença de caixa no período.</div>'; return;
+  }
+  const w = 620, h = 250, ml = 62, mr = 10, mt = 12, mb = 42;
+  const iw = w - ml - mr, ih = h - mt - mb;
+  /* escala simétrica para o zero cair numa linha do grid, no meio do gráfico */
+  let [lo, hi] = niceScale(-Math.max(...vals.map(Math.abs)), Math.max(...vals.map(Math.abs)));
+  const m = Math.max(Math.abs(lo), Math.abs(hi)); lo = -m; hi = m;
+  const bw = Math.max(2, Math.min(22, iw / n * .68));
+  const X = k => ml + iw * (k + .5) / n;
+  const Y = v => mt + ih - (v - lo) / (hi - lo) * ih;
+  let g = '';
+  for (let t = 0; t <= 4; t++){
+    const v = lo + (hi - lo) * t / 4, y = Y(v);
+    g += `<line x1="${ml}" x2="${w-mr}" y1="${y}" y2="${y}" stroke="${CH.line}"/>`
+      +  `<text x="${ml-8}" y="${y+4}" text-anchor="end" font-size="11" fill="${CH.ink2}" font-family="IBM Plex Sans Condensed">${fMil(v)}</text>`;
+  }
+  g += `<line x1="${ml}" x2="${w-mr}" y1="${Y(0)}" y2="${Y(0)}" stroke="${CH.ink}" stroke-width="1.6"/>`;
+  vals.forEach((v, k) => {
+    const i = p0 + k, y0 = Y(0), y1 = Y(v);
+    const selDia = CMP.dia === i, naSem = CMP.sem != null && WOF[i] === CMP.sem;
+    const cor = v >= 0 ? CH.green : CH.red;
+    const op = (CMP.dia != null && !selDia) || (CMP.sem != null && !naSem) ? .28 : 1;
+    g += `<rect class="cp-bar" data-cpg="dia|${i}" x="${X(k)-bw/2}" y="${Math.min(y0,y1)}"
+      width="${bw}" height="${Math.max(1.5, Math.abs(y1-y0))}" fill="${cor}" opacity="${op}" rx="1.5">
+      <title>${dBRfull(D.dates[i])} · ${dow(D.dates[i])}
+${v>0?'+':''}${fMil(v)} R$ mil contra a posição anterior</title></rect>`;
+    if (selDia) g += `<rect x="${X(k)-bw/2-2}" y="${mt}" width="${bw+4}" height="${ih}" fill="${CH.amber}" opacity=".14" rx="2" pointer-events="none"/>`;
+  });
+  const passo = Math.max(1, Math.ceil(n / 12));
+  for (let k = 0; k < n; k += passo)
+    g += `<text x="${X(k)}" y="${h-mb+20}" text-anchor="middle" font-size="10.5" fill="${CH.ink2}" font-family="IBM Plex Sans Condensed">${dBR(D.dates[p0+k])}</text>`;
+  if (TI >= p0 && TI <= p1){
+    const x = X(TI - p0);
+    g += `<line x1="${x}" x2="${x}" y1="${mt}" y2="${mt+ih}" stroke="${CH.amber}" stroke-width="1.2" stroke-dasharray="3 3"/>`
+      +  `<text x="${x+4}" y="${mt+11}" font-size="10" fill="${CH.accentTxt}">hoje</text>`;
+  }
+  el.innerHTML = svgWrap(w, h, g)
+    + `<div class="lg"><span><i style="background:${CH.green}"></i>caixa melhor que antes</span>
+       <span><i style="background:${CH.red}"></i>caixa pior que antes</span></div>`;
+}
+
+function cmpGrafLinhas(el, i0, i1){
+  const busca = CMP.busca; CMP.busca = '';
+  const arv = cmpArvore(i0, i1);
+  CMP.busca = busca;
+  const folhas = [];
+  (function desce(l){ l.forEach(x => x.filhos.length ? desce(x.filhos) : folhas.push(x)); })(arv);
+  const top = folhas.filter(x => Math.abs(x.dif) > .5)
+    .sort((a,b) => Math.abs(b.dif) - Math.abs(a.dif)).slice(0, 10);
+  if (!top.length){ el.innerHTML = '<div class="empty">Nenhuma linha divergiu no recorte.</div>'; return; }
+
+  const w = 620, h = Math.max(190, top.length * 23 + 42), ml = 208, mr = 74, mt = 10;
+  const iw = w - ml - mr;
+  const max = Math.max(...top.map(x => Math.abs(x.dif))) || 1;
+  const X = v => ml + iw/2 + (v / max) * (iw/2 - 4);
+  let g = `<line x1="${ml+iw/2}" x2="${ml+iw/2}" y1="${mt-4}" y2="${h-18}" stroke="${CH.ink2}"/>`;
+  top.forEach((x, k) => {
+    const y = mt + k * 23, x0 = ml + iw/2, x1 = X(x.dif);
+    const bom = (x.n.kind === 'E') === (x.dif > 0);
+    const sel = CMP.alvo && CMP.alvo.tipo === 'linha' && CMP.alvo.ref === x.id;
+    const op = (CMP.alvo && CMP.alvo.tipo === 'linha' && !sel) ? .3 : 1;
+    g += `<rect class="cp-bar" data-cpg="linha|${x.id}" x="${Math.min(x0,x1)}" y="${y}"
+      width="${Math.max(2, Math.abs(x1-x0))}" height="15" rx="2"
+      fill="${bom ? CH.green : CH.red}" opacity="${op}">
+      <title>${esc(x.nome)}
+${esc(pathOf(x.id))}
+${x.dif>0?'+':''}${fMil(x.dif)} R$ mil · antes ${fMil(x.b)} · agora ${fMil(x.a)}</title></rect>`;
+    if (sel) g += `<rect x="${ml-4}" y="${y-3}" width="${iw+8}" height="21" fill="${CH.amber}" opacity=".14" rx="3" pointer-events="none"/>`;
+    /* nomes iguais em ramos diferentes ganham o pai junto, senão viram duas barras iguais */
+    const repetido = top.filter(o => o.nome === x.nome).length > 1;
+    const pai = repetido ? ((NODE[(NODE[x.id]||{}).parent] || {}).nome || '') : '';
+    /* corta o pai, nunca o nome: é o nome que distingue uma barra da outra */
+    const curto = (t, n) => t.length > n ? t.slice(0, n - 1) + '…' : t;
+    const rot = pai ? `${curto(pai, 12)} › ${curto(x.nome, 22)}` : curto(x.nome, 36);
+    g += `<text x="${ml-10}" y="${y+12}" text-anchor="end" font-size="11" fill="${CH.ink2}">${esc(rot)}</text>`;
+    g += `<text x="${x1 + (x.dif>=0?6:-6)}" y="${y+12}" text-anchor="${x.dif>=0?'start':'end'}"
+      font-size="11" font-weight="600" fill="${bom ? CH.green : CH.red}">${x.dif>0?'+':''}${fMil(x.dif)}</text>`;
+  });
+  el.innerHTML = svgWrap(w, h, g)
+    + `<div class="lg"><span><i style="background:${CH.green}"></i>ajuda o caixa</span>
+       <span><i style="background:${CH.red}"></i>atrapalha o caixa</span></div>`;
 }
 
 /* ---------------- eventos ---------------- */
@@ -4414,11 +4700,14 @@ function cmpEventos(){
     renderComparativo(); });
 
   $('cpLim').oninput = () => { S.lim = +$('cpLim').value || 0; save(); renderComparativo(); };
+  document.querySelectorAll('#cpGerSeg button').forEach(b => b.onclick = () => {
+    CMP.ger = b.dataset.g === '1'; renderComparativo(); });
 
   document.querySelectorAll('#cpVista button').forEach(b => b.onclick = () => {
     vista(b.dataset.v); renderComparativo(); });
   document.querySelectorAll('#cpAlSeg button').forEach(b => b.onclick = () => {
     CMP.alerta = b.dataset.a; renderComparativo(); });
+  $('cpAlVolta').onclick = () => { limpaFoco(); renderComparativo(); };
   document.querySelectorAll('#cpSoSeg button').forEach(b => b.onclick = () => {
     document.querySelectorAll('#cpSoSeg button').forEach(x => x.classList.remove('on'));
     b.classList.add('on'); CMP.so = b.dataset.s; renderComparativo(); });
@@ -4480,6 +4769,23 @@ function cmpEventos(){
     }
     renderComparativo(); cmpSobe();
   });
+
+  /* clicar numa barra faz o mesmo que clicar na linha da tabela */
+  ['cpG1','cpG2'].forEach(id => $(id).addEventListener('click', ev => {
+    const r = ev.target.closest('[data-cpg]');
+    if (!r) return;
+    const [tipo, ref] = r.dataset.cpg.split('|');
+    if (tipo === 'dia'){
+      const i = +ref, igual = CMP.dia === i;
+      limpaFoco(); if (!igual){ CMP.dia = i; CMP.alvo = { tipo:'dia', ref:i }; vista('dias'); }
+    } else {
+      const igual = CMP.alvo && CMP.alvo.tipo === 'linha' && CMP.alvo.ref === ref;
+      limpaFoco();
+      if (!igual){ CMP.alvo = { tipo:'linha', ref }; vista('linhas');
+                   cmpAncestrais(ref).forEach(x => cmpAbertos().add(x)); }
+    }
+    renderComparativo(); cmpSobe();
+  }));
 
   document.addEventListener('click', ev => {
     if (ev.target.id === 'cpLimpaFoco'){ limpaFoco(); renderComparativo(); }
@@ -4870,6 +5176,7 @@ function cmpRelatorioExcel(){
       { alt: 26, cells: [Tc('Comparativo · Fluxo Diário x Ultima Posição', 10)] },
       { cells: [Tc(`${gs.map(g => GRUPOS[g]).join(' + ')} · ${dBRfull(D.dates[p0])} a ${dBRfull(D.dates[p1])} · valores em R$ mil`, 9)] },
       { cells: [Tc(`Gerado em ${dBRfull(HOJE)} a partir da base EKO de ${dBRfull(D.meta.dataBase)}`, 9)] },
+      { cells: [Tc(`Alertas de caixa calculados ${CMP.ger ? 'descontando' : 'sem descontar'} a trava gerencial, com limite de ${fMil(S.lim)} R$ mil.`, 9)] },
       { cells: [] },
       { cells: [Tc('As duas posições', 12), Tc('', 12), Tc('', 12), Tc('', 12)] },
       { cells: [Tc('Posição atual · aba "Fluxo Diário"', 0), Tc(`realizada até ${dBRfull(ultFD)}`, 0)] },
@@ -4885,6 +5192,9 @@ function cmpRelatorioExcel(){
     linha('Resultado (entradas − saídas)', PB.resB, PB.resA, true);
     const ufim = p1;
     linha(`Caixa final em ${dBR(D.dates[ufim])}`, cmpCaixaFimUP(ufim), cmpCaixaFim(ufim), true);
+    linha(`Caixa livre em ${dBR(D.dates[ufim])}`, cmpCaixaLivreUP(ufim), cmpCaixaLivre(ufim), true);
+    linha(`Caixa livre + trava gerencial em ${dBR(D.dates[ufim])}`,
+          cmpCaixaLivreUP(ufim) + cmpTravaGerUP(ufim), cmpCaixaLivre(ufim) + cmpTravaGer(ufim), true);
     L.push({ cells: [] });
     L.push({ alt: 20, cells: [Tc('O que olhar primeiro', 12), Tc('', 12), Tc('', 12), Tc('', 12)] });
     if (!topAl.length) L.push({ cells: [Tc('Nada acima do limite de materialidade neste período.', 9)] });
@@ -4892,6 +5202,7 @@ function cmpRelatorioExcel(){
       Tc(SEV[a.sev], 0), Tc(a.titulo, 0), Tc(a.detalhe, 0), Nc(a.valor, a.sev === 'alta' ? 11 : 2)] }));
     L.push({ cells: [] });
     L.push({ cells: [Tc('A lista completa está na aba "Gargalos"; a linha a linha, na aba "Linhas".', 9)] });
+    L.push({ cells: [Tc('Caixa livre já desconta a trava bancária e a gerencial. A linha de baixo soma a gerencial de volta — a bancária nunca entra.', 9)] });
     L.push({ cells: [Tc('Adiantamento entre os grupos fica de fora de todo o relatório: é transferência interna.', 9)] });
     return { nome: 'Resumo', linhas: L, larguras: [44, 30, 46, 18] };
   }
@@ -4959,6 +5270,12 @@ function cmpRelatorioExcel(){
     L.push({ cells: [Tc('Total de entradas', 7), Tc('', 7), Nc(PB.entB, 5), Nc(PB.entA, 5), Nc(PB.entA - PB.entB, 5), Tc('', 17), Tc('', 7)] });
     L.push({ cells: [Tc('Total de saídas', 7), Tc('', 7), Nc(PB.saiB, 5), Nc(PB.saiA, 5), Nc(PB.saiA - PB.saiB, 5), Tc('', 17), Tc('', 7)] });
     L.push({ cells: [Tc('Resultado (entradas − saídas)', 7), Tc('', 7), Nc(PB.resB, 5), Nc(PB.resA, 5), Nc(PB.resA - PB.resB, 5), Tc('', 17), Tc('', 7)] });
+    const uf = p1;
+    L.push({ cells: [Tc(`Caixa livre em ${dBR(D.dates[uf])}`, 7), Tc('', 7),
+      Nc(cmpCaixaLivreUP(uf), 5), Nc(cmpCaixaLivre(uf), 5), Nc(cmpCaixaLivre(uf) - cmpCaixaLivreUP(uf), 5), Tc('', 17), Tc('', 7)] });
+    L.push({ cells: [Tc(`Caixa livre + trava gerencial em ${dBR(D.dates[uf])}`, 7), Tc('', 7),
+      Nc(cmpCaixaLivreUP(uf) + cmpTravaGerUP(uf), 5), Nc(cmpCaixaLivre(uf) + cmpTravaGer(uf), 5),
+      Nc((cmpCaixaLivre(uf) + cmpTravaGer(uf)) - (cmpCaixaLivreUP(uf) + cmpTravaGerUP(uf)), 5), Tc('', 17), Tc('', 7)] });
     return { nome: 'Linhas', linhas: L, larguras: [46, 40, 15, 15, 15, 9, 18],
              congelar: { x: 1, y: 5 }, recuo: true, paisagem: true };
   }
