@@ -918,7 +918,11 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
     <div class="kpis" id="rsKpis"></div>
 
     <div class="block">
-      <h3>Posição do dia<span class="sub">semana inteira em colunas · a coluna do dia selecionado é editável</span></h3>
+      <h3>Posição do dia<span class="sub">semana inteira em colunas · dias já realizados vêm do ECO e não aceitam edição</span>
+        <span class="sp"></span>
+        <button class="btn sec sm" id="rsAbrir">Expandir tudo</button>
+        <button class="btn sec sm" id="rsFechar">Só os tópicos</button>
+      </h3>
       <div class="tw"><table class="tree" id="rsTabela"></table></div>
     </div>
 
@@ -1060,7 +1064,7 @@ const GRUPOS = { BVT: 'Bravante', MAR: 'Marlin' };
 /* Carimbo desta versão do arquivo. Serve para saber, olhando a tela, se o
    index.html publicado é o mais recente — a base fica no Supabase, mas o
    código vem do arquivo, e os dois se atualizam por caminhos diferentes. */
-const VERSAO = '2026-10-27 13h30';
+const VERSAO = '2026-10-27 15h56';
 const isLeaf = id => !KIDS[id];
 function ser(id){
   if (SER[id]) return SER[id];
@@ -3711,7 +3715,7 @@ function scvEventos(){
    Puxa tudo do ECO, aceita ajuste manual por cima e guarda os dois lados
    separados. Nada aqui altera o fluxo, os saldos ou os lançamentos do ECO. */
 
-const RES = { dia: null, margem: 0, aberto: new Set() };
+const RES = { dia: null, margem: 0, aberto: new Set(), fechado: new Set() };
 
 /* soma de um conjunto de nós, nos dois grupos ativos */
 function resSoma(sufixos, i){
@@ -3928,6 +3932,12 @@ function resEspeciais(){
     .filter(([, b]) => gs.includes(b.grp))
     .map(([k, b]) => ({ k: 'bl_' + k, nome: b.nome, serie: b.serie || [] }));
 }
+/* Linhas que não pendem de nenhum subtotal. Somem quando todos os tópicos
+   estão fechados — não importa se pelo botão ou clicando um a um, senão os
+   dois caminhos levariam a telas diferentes.                              */
+const RES_SOLTAS = RES_LINHAS.filter(L => !L.tipo && !L.pai).map(L => L.k);
+const RES_TOPICOS = RES_LINHAS.filter(L => L.tipo === 'grupo').map(L => L.k);
+const resSoTopicos = () => RES_TOPICOS.every(k => RES.fechado.has(k));
 const resFilhosDe = k => RES_LINHAS.filter(L => L.pai === k);
 const resGrupoVal = (i, L) => resFilhosDe(L.k).reduce((a, F) => a + resValor(i, F).usado, 0);
 
@@ -3943,21 +3953,33 @@ function resSaldoInicialAuto(i){
 /* O que aparece na célula já vem com sinal (saída negativa), e é assim que a
    Tesouraria digita. Internamente a conta usa magnitude e o sinal da linha —
    por isso o valor digitado é convertido na entrada e na saída.            */
+/* Quando o dia vira realizado, quem manda é o ECO: a edição deixa de contar,
+   para que o resumo do dia seguinte parta do saldo que de fato aconteceu e
+   não do que foi projetado à mão. A edição não é apagada — fica guardada e
+   aparece como nota na célula, para quem quiser comparar depois.          */
+const resRealizado = i => i <= LRI;
 function resValor(i, L){
   const r = resGet(i);
   const bruto = r && r.linhas && r.linhas[L.k] && r.linhas[L.k].manual;
   const vazio = bruto === undefined || bruto === null || bruto === '';
   const auto = L.auto(i);
-  const manual = vazio ? null : +bruto;
-  return { auto, manual,
-           usado: vazio ? auto : manual * (L.sinal || 1),
+  const guardado = vazio ? null : +bruto;
+  const vale = !vazio && !resRealizado(i);
+  return { auto, manual: vale ? guardado : null,
+           ignorado: (!vazio && resRealizado(i)) ? guardado : null,
+           usado: vale ? guardado * (L.sinal || 1) : auto,
            obs: (r && r.linhas && r.linhas[L.k] && r.linhas[L.k].obs) || '' };
 }
 function resCalcula(i){
   const r = resGet(i);
-  const margem = r && r.margem != null ? +r.margem : RES.margem;
+  const real = resRealizado(i);
+  /* num dia realizado nada do que foi digitado conta: nem valor, nem saldo
+     inicial, nem margem de segurança. O resumo mostra o ECO.             */
+  const margem = real ? 0 : (r && r.margem != null ? +r.margem : RES.margem);
   const siAuto = resSaldoInicialAuto(i);
-  const siMan = r && r.saldoIniManual != null && r.saldoIniManual !== '' ? +r.saldoIniManual : null;
+  const siSalvo = r && r.saldoIniManual != null && r.saldoIniManual !== '' ? +r.saldoIniManual : null;
+  const siMan = real ? null : siSalvo;
+  const siIgnorado = real ? siSalvo : null;
   const si = (siMan == null ? siAuto : siMan) - margem;
   let ent = 0, sai = 0;
   RES_LINHAS.forEach(L => {
@@ -3965,7 +3987,7 @@ function resCalcula(i){
     const v = resValor(i, L).usado;
     if (L.sinal > 0) ent += v; else sai += v;
   });
-  return { siAuto, siMan, margem, si, ent, sai, total: si + ent - sai };
+  return { siAuto, siMan, siIgnorado, margem, si, ent, sai, real, total: si + ent - sai };
 }
 
 /* Conferência da ligação entre o resumo e o ECO: o que cada linha encontrou,
@@ -4056,33 +4078,58 @@ function renderResumo(){
 
   h += `<tr class="tot"><td>Saldo inicial</td>${dias.map(k => {
       const cc = resCalcula(k);
+      const ph = Math.abs(cc.siAuto) < .5 ? '—' : fMil(cc.siAuto);
+      if (cc.real) return `<td class="n mut"${cc.siIgnorado != null
+          ? ` title="Você havia lançado ${cc.siIgnorado} aqui. O dia virou realizado, então vale o ECO."` : ''}>${
+        ph}${cc.siIgnorado != null ? ' <span class="bdg at">ed.</span>' : ''}</td>`;
       return `<td class="n"><input class="just rssi" data-i="${k}" style="text-align:right"
-        value="${cc.siMan == null ? '' : cc.siMan}" placeholder="${Math.abs(cc.siAuto) < .5 ? '—' : fMil(cc.siAuto)}"></td>`;
+        value="${cc.siMan == null ? '' : cc.siMan}" placeholder="${ph}"></td>`;
     }).join('')}<td class="mut" style="font-size:11px">caixa livre do dia anterior somando a trava gerencial, vindo do ECO</td></tr>`;
 
   RES_LINHAS.forEach(L => {
     /* subtotal: soma os próprios filhos, não se edita */
     if (L.tipo === 'grupo'){
-      h += `<tr class="tot"><td><b>${esc(L.nome)}</b></td>${dias.map(k => {
-        const v = resGrupoVal(k, L);
-        return `<td class="n">${Math.abs(v) < .5 ? '<span class="mut">—</span>' : `<b>${fMil(v * L.sinal)}</b>`}</td>`;
-      }).join('')}<td></td></tr>`;
+      const aberto = !RES.fechado.has(L.k);
+      h += `<tr class="tot clik" data-rsg="${L.k}"><td><span class="tg b">${aberto ? '▾' : '▸'}</span><b>${esc(L.nome)}</b></td>${
+        dias.map(k => {
+          const v = resGrupoVal(k, L);
+          return `<td class="n">${Math.abs(v) < .5 ? '<span class="mut">—</span>' : `<b>${fMil(v * L.sinal)}</b>`}</td>`;
+        }).join('')}<td></td></tr>`;
       return;
     }
+    if (L.pai && RES.fechado.has(L.pai)) return;
+    /* recolhido mostra só os tópicos; as linhas sem subtotal somem.
+       O que elas valem fica declarado na linha do Total.                */
+    if (!L.pai && resSoTopicos()) return;
     const v = resValor(i, L);
     const filho = !!L.pai;
     h += `<tr><td style="padding-left:${filho ? 34 : 14}px">${esc(L.nome)}${
       L.manualOnly ? ' <span class="bdg at">à mão</span>' : ''}</td>`;
     dias.forEach(k => {
       const vv = resValor(k, L);
-      h += `<td class="n"><input class="just rsv" data-k="${L.k}" data-i="${k}" style="text-align:right"
-              value="${vv.manual == null ? '' : vv.manual}" placeholder="${
-                L.manualOnly || Math.abs(vv.auto) < .5 ? '—' : fMil(vv.auto * L.sinal)}"></td>`;
+      const mostra = L.manualOnly || Math.abs(vv.auto) < .5 ? '—' : fMil(vv.auto * L.sinal);
+      if (resRealizado(k)){
+        /* dia realizado: só leitura, com nota do que foi editado e não contou */
+        h += `<td class="n mut"${vv.ignorado != null
+            ? ` title="Você havia lançado ${vv.ignorado} aqui. O dia virou realizado, então vale o ECO."` : ''}>${
+          mostra}${vv.ignorado != null ? ' <span class="bdg at">ed.</span>' : ''}</td>`;
+      } else {
+        h += `<td class="n"><input class="just rsv" data-k="${L.k}" data-i="${k}" style="text-align:right"
+                value="${vv.manual == null ? '' : vv.manual}" placeholder="${mostra}"></td>`;
+      }
     });
     h += `<td><input class="just rso" data-k="${L.k}" value="${esc(v.obs)}" placeholder="—"></td></tr>`;
   });
 
-  h += `<tr class="tot"><td><b>Total</b></td>${dias.map(k => {
+  /* recolhido, o Total continua somando o que está escondido — então ele avisa */
+  const foraDaVista = resSoTopicos()
+    ? dias.reduce((a, k) => a + RES_SOLTAS.reduce((t, kk) => {
+        const LL = RES_LINHAS.find(x => x.k === kk);
+        return t + resValor(k, LL).usado * LL.sinal; }, 0), 0)
+    : 0;
+  h += `<tr class="tot"><td><b>Total</b>${Math.abs(foraDaVista) > .5
+      ? `<span class="mut" style="font-weight:400"> · inclui ${fMil(foraDaVista)} de trava, débito automático, despesas financeiras e ajuste</span>`
+      : ''}</td>${dias.map(k => {
       const cc = resCalcula(k);
       return `<td class="n ${cls(cc.total)}"><b>${fMil(cc.total)}</b></td>`;
     }).join('')}<td></td></tr>`;
@@ -4096,17 +4143,21 @@ function renderResumo(){
     h += `<tr><td style="padding-left:34px">${esc(E.nome)}</td>`;
     dias.forEach(k => {
       const rk = resGet(k), val = (rk && rk.linhas && rk.linhas[E.k] && rk.linhas[E.k].manual);
-      const auto = E.serie[k] || 0;
-      h += `<td class="n"><input class="just rsv" data-k="${E.k}" data-i="${k}" style="text-align:right"
-              value="${val == null || val === '' ? '' : esc(val)}"
-              placeholder="${Math.abs(auto) < .5 ? '—' : fMil(auto)}"></td>`;
+      const auto = E.serie[k] || 0, ph = Math.abs(auto) < .5 ? '—' : fMil(auto);
+      if (resRealizado(k)){
+        h += `<td class="n mut"${val ? ` title="Você havia lançado ${esc(val)} aqui. O dia virou realizado, então vale o ECO."` : ''}>${
+          ph}${val ? ' <span class="bdg at">ed.</span>' : ''}</td>`;
+      } else {
+        h += `<td class="n"><input class="just rsv" data-k="${E.k}" data-i="${k}" style="text-align:right"
+                value="${val == null || val === '' ? '' : esc(val)}" placeholder="${ph}"></td>`;
+      }
     });
     h += `<td></td></tr>`;
   });
   h += `<tr class="tot"><td>Total das contas especiais</td>${dias.map(k => {
       const rk = resGet(k);
       const t = esp.reduce((a, E) => {
-        const m = rk && rk.linhas && rk.linhas[E.k] && rk.linhas[E.k].manual;
+        const m = resRealizado(k) ? null : (rk && rk.linhas && rk.linhas[E.k] && rk.linhas[E.k].manual);
         return a + (m == null || m === '' ? (E.serie[k] || 0) : (+m || 0));
       }, 0);
       return `<td class="n">${Math.abs(t) < .5 ? '<span class="mut">—</span>' : `<b>${fMil(t)}</b>`}</td>`;
@@ -4119,6 +4170,11 @@ function renderResumo(){
     resEditar(+el.dataset.i, o => { (o.linhas[el.dataset.k] = o.linhas[el.dataset.k] || {}).manual = el.value.trim(); }); });
   $('rsTabela').querySelectorAll('.rso').forEach(el => el.onchange = () => {
     resEditar(i, o => { (o.linhas[el.dataset.k] = o.linhas[el.dataset.k] || {}).obs = el.value; }); });
+  $('rsTabela').querySelectorAll('[data-rsg]').forEach(tr => tr.onclick = ev => {
+    if (ev.target.tagName === 'INPUT') return;
+    const k = tr.dataset.rsg;
+    RES.fechado.has(k) ? RES.fechado.delete(k) : RES.fechado.add(k);
+    renderResumo(); });
   $('rsTabela').querySelectorAll('[data-rs]').forEach(tr => tr.onclick = ev => {
     if (ev.target.tagName === 'INPUT') return;
     const k = tr.dataset.rs;
@@ -4178,6 +4234,10 @@ function resEditar(i, fn){
   renderResumo();
 }
 function resEventos(){
+  $('rsAbrir').onclick = () => { RES.fechado = new Set(); renderResumo(); };
+  $('rsFechar').onclick = () => {
+    RES.fechado = new Set(RES_TOPICOS);
+    renderResumo(); };
   $('rsFonteTgl').onclick = () => {
     const w = $('rsFonteWrap'), aberto = w.style.display !== 'none';
     w.style.display = aberto ? 'none' : '';
