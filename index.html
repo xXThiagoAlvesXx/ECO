@@ -923,6 +923,17 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
     </div>
 
     <div class="block">
+      <h3>De onde vem cada linha<span class="sub" id="rsFonteN"></span>
+        <span class="sp"></span>
+        <button class="btn sec sm" id="rsFonteTgl">Mostrar</button>
+      </h3>
+      <div class="tw" id="rsFonteWrap" style="display:none"><table id="rsFonte"></table></div>
+      <div class="bd"><p class="hint" style="margin:0">Cada linha do resumo busca uma ou mais linhas do ECO pelo nome.
+        Se a planilha for renomeada, a busca pode deixar de achar — e então a linha fica muda.
+        Esta tabela mostra o que cada uma encontrou no período do mês, e marca em vermelho o que não encontrou.</p></div>
+    </div>
+
+    <div class="block">
       <h3>Resumos salvos<span class="sub" id="rsHistN"></span></h3>
       <div class="tw"><table id="rsHist"></table></div>
     </div>
@@ -1046,6 +1057,10 @@ const NODEDEF = D.nodes;
 let N, NODE, KIDS, SER, LEAVES, DIDX, TODAY, LASTR, MARI, HOJE, DEFASAGEM;
 let WEEKS, WOF, MONTHS, MOF, TI, LRI;
 const GRUPOS = { BVT: 'Bravante', MAR: 'Marlin' };
+/* Carimbo desta versão do arquivo. Serve para saber, olhando a tela, se o
+   index.html publicado é o mais recente — a base fica no Supabase, mas o
+   código vem do arquivo, e os dois se atualizam por caminhos diferentes. */
+const VERSAO = '2026-10-27 13h30';
 const isLeaf = id => !KIDS[id];
 function ser(id){
   if (SER[id]) return SER[id];
@@ -2869,6 +2884,7 @@ function renderDataPanel(){
       ? ` (Bravante ${dBRfull(D.meta.ultimoRealizadoBVT)}, Marlin ${dBRfull(D.meta.ultimoRealizadoMAR)})` : ''
     } · projeção até ${dBRfull(D.dates[N-1])}</span></p>
     <p><b>Cobertura</b><br><span class="mut">${N} dias úteis · ${D.nodes.length} linhas · ${LEAVES.length} itens de detalhe · valores em R$ mil.</span></p>
+    <p><b>Versão desta página</b><br><span class="mut">${VERSAO} · se não for a versão que você acabou de publicar, o navegador está servindo uma cópia antiga: recarregue com Ctrl+Shift+R.</span></p>
     ${DEFASAGEM > 0 ? `<p style="color:var(--red)"><b>Base desatualizada.</b><br><span class="mut">Hoje é ${dBRfull(HOJE)} e o realizado vai só até ${dBRfull(LASTR)} — ${DEFASAGEM} dia(s) útil(eis) de diferença. Atualize a planilha abaixo.</span></p>` : ''}
 
     <div class="block" style="margin:14px 0"><h3>Atualizar base</h3><div class="bd">
@@ -3756,6 +3772,58 @@ function resTravaDia(i, cat, dir){
   return t;
 }
 
+/* Comparar nome de linha por igualdade exata quebra ao menor retoque na
+   planilha — um acento, um espaço, um hífen. Aqui o nome é reduzido a letras
+   e dígitos antes de comparar, e ainda se aceita que um contenha o outro.  */
+function resNorm(s){
+  return String(s || '').toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+}
+const resBate = (a, b) => {
+  const x = resNorm(a), y = resNorm(b);
+  return !!x && !!y && (x === y || x.includes(y) || y.includes(x));
+};
+
+/* Onde cada linha do resumo vai buscar o número no ECO.
+   src = { raiz:'E'|'S', nomes:[...] }          -> filhos diretos da raiz
+          { cat:'Categoria', filhos:[...] }     -> netos, sob aquela categoria
+   Devolve o que encontrou e o que procurou sem achar — é isso que alimenta
+   o quadro de conferência e evita que uma linha fique muda sem avisar.   */
+function resNosDe(s){
+  const achados = [], faltando = [];
+  if (!s) return { achados, faltando };
+  const alvos = s.nomes || s.filhos || [];
+
+  /* candidatos: ou os filhos diretos da raiz, ou os netos sob a categoria */
+  const cand = [];
+  grupos().forEach(g => {
+    const raiz = ROOT[g][s.raiz || 'S'];
+    (KIDS[raiz] || []).forEach(id => {
+      if (!s.cat) cand.push(id);
+      else if (resBate(NODE[id].nome, s.cat)) (KIDS[id] || []).forEach(c => cand.push(c));
+    });
+  });
+
+  /* Nome igual primeiro. Só depois se aceita parecido, e só para o alvo que
+     ficou sem par — senão "Folha - Líquida - CLT" abocanha a linha "- Pensão"
+     e o valor entra duas vezes.                                            */
+  const usado = new Set();
+  const pendentes = [];
+  alvos.forEach(alvo => {
+    const iguais = cand.filter(id => !usado.has(id) && resNorm(NODE[id].nome) === resNorm(alvo));
+    if (iguais.length){ iguais.forEach(id => { usado.add(id); achados.push(id); }); }
+    else pendentes.push(alvo);
+  });
+  pendentes.forEach(alvo => {
+    const perto = cand.filter(id => !usado.has(id) && resBate(NODE[id].nome, alvo));
+    if (perto.length) perto.forEach(id => { usado.add(id); achados.push(id); });
+    else faltando.push(alvo);
+  });
+  return { achados, faltando };
+}
+const resAuto = (i, L) => resNosDe(L.src).achados.reduce((a, id) => a + nodeTot(id, i, i), 0);
+
 /* soma filhos escolhidos de uma categoria do desembolso.
    Procura a categoria entre os filhos da raiz, e não pelo nome solto: há
    segmentos com o mesmo nome (Corporativo, Offshore) espalhados na árvore. */
@@ -3797,44 +3865,61 @@ function resOutrasSai(i){
    subtotais: não se editam e não entram na conta — somam os próprios filhos. */
 const RES_LINHAS = [
   { k:'gEnt',      nome:'Entradas de Receita e Outras',   tipo:'grupo', sinal:+1 },
-  { k:'receita',   nome:'Receita',                   pai:'gEnt', sinal:+1, auto:i => resReceita(i,false) },
-  { k:'estaleiro', nome:'Receita Estaleira',         pai:'gEnt', sinal:+1, auto:i => resReceita(i,true) },
-  { k:'captacao',  nome:'Captação',                  pai:'gEnt', sinal:+1, auto:i => resPorNome(['Captações'],'E',i) },
-  { k:'antecip',   nome:'Antecipações',              pai:'gEnt', sinal:+1, auto:i => resPorNome(['Antecipações Recebíveis'],'E',i) },
-  { k:'akofsEnt',  nome:'Akofs/Way/HLB',             pai:'gEnt', sinal:+1, auto:i => resAkofsEnt(i) },
+  { k:'receita',   nome:'Receita',                   pai:'gEnt', sinal:+1, auto:i => resReceita(i,false),
+    fonte:'Receita Líquida, sem Estaleiro e sem o fee do Akofs' },
+  { k:'estaleiro', nome:'Receita Estaleira',         pai:'gEnt', sinal:+1, auto:i => resReceita(i,true),
+    fonte:'Receita Líquida › Estaleiro' },
+  { k:'captacao',  nome:'Captação',                  pai:'gEnt', sinal:+1, src:{ raiz:'E', nomes:['Captações'] } },
+  { k:'antecip',   nome:'Antecipações',              pai:'gEnt', sinal:+1, src:{ raiz:'E', nomes:['Antecipações Recebíveis'] } },
+  { k:'akofsEnt',  nome:'Akofs/Way/HLB',             pai:'gEnt', sinal:+1, auto:i => resAkofsEnt(i),
+    fonte:'Receita Líquida › Offshore - Akofs - Fee/Custos' },
 
-  { k:'travag',    nome:'Trava Gerencial',                sinal:-1, auto:i => resTravaDia(i,'ger','trava') },
+  { k:'travag',    nome:'Trava Gerencial',                sinal:-1, auto:i => resTravaDia(i,'ger','trava'),
+    fonte:'travas gerenciais lançadas à mão' },
 
   { k:'gDp',       nome:'Custo Pessoais',                 tipo:'grupo', sinal:-1 },
-  { k:'folha',     nome:'Folha e PJ',                pai:'gDp', sinal:-1, auto:i => resSubDe('Custos Pessoais',
-        ['Folha - Líquida - CLT','Folha - Líquida - CLT - Pensão','Folha - PJs - Diretores e Gerentes'], i) },
-  { k:'ferias',    nome:'Férias e rescisão',         pai:'gDp', sinal:-1, auto:i => resSubDe('Custos Pessoais',
-        ['Férias/Rescisões','Férias/Rescisões - Pensão'], i) },
-  { k:'benef',     nome:'Benefícios (V. Transp. + Refeição)', pai:'gDp', sinal:-1, auto:i => resSubDe('Custos Pessoais',
-        ['Vale Refeição','Vale Transporte'], i) },
-  { k:'saude',     nome:'Plano de Saúde',            pai:'gDp', sinal:-1, auto:i => resSubDe('Custos Pessoais', ['Plano de Saúde'], i) },
-  { k:'fgts',      nome:'FGTS / INSS/IR',            pai:'gDp', sinal:-1, auto:i => resSubDe('Custos Pessoais', ['FGTS','INSS/IR Folha'], i) },
+  { k:'folha',     nome:'Folha e PJ',                pai:'gDp', sinal:-1,
+    src:{ cat:'Custos Pessoais', filhos:['Folha - Líquida - CLT','Folha - Líquida - CLT - Pensão','Folha - PJs - Diretores e Gerentes'] } },
+  { k:'ferias',    nome:'Férias e rescisão',         pai:'gDp', sinal:-1,
+    src:{ cat:'Custos Pessoais', filhos:['Férias/Rescisões','Férias/Rescisões - Pensão'] } },
+  { k:'benef',     nome:'Benefícios (V. Transp. + Refeição)', pai:'gDp', sinal:-1,
+    src:{ cat:'Custos Pessoais', filhos:['Vale Refeição','Vale Transporte'] } },
+  { k:'saude',     nome:'Plano de Saúde',            pai:'gDp', sinal:-1,
+    src:{ cat:'Custos Pessoais', filhos:['Plano de Saúde'] } },
+  { k:'fgts',      nome:'FGTS / INSS/IR',            pai:'gDp', sinal:-1,
+    src:{ cat:'Custos Pessoais', filhos:['FGTS','INSS/IR Folha'] } },
 
-  { k:'debaut',    nome:'Débito Aut.',                    sinal:-1, auto:i => resPorNome(['Débito Automático'],'S',i) },
+  { k:'debaut',    nome:'Débito Aut.',                    sinal:-1, src:{ raiz:'S', nomes:['Débito Automático'] } },
 
   { k:'gDiv',      nome:'Dívida e Antecipações',          tipo:'grupo', sinal:-1 },
-  { k:'emprest',   nome:'Empréstimos',               pai:'gDiv', sinal:-1, auto:i => resSubDe('Dívida', ['Dívida - Capital de Giro e outros'], i) },
-  { k:'antecsai',  nome:'Antecipação',               pai:'gDiv', sinal:-1, auto:i => resSubDe('Dívida', ['Dívida - Antecipação de Recebíveis'], i) },
+  { k:'emprest',   nome:'Empréstimos',               pai:'gDiv', sinal:-1,
+    src:{ cat:'Dívida', filhos:['Dívida - Capital de Giro e outros'] } },
+  { k:'antecsai',  nome:'Antecipação',               pai:'gDiv', sinal:-1,
+    src:{ cat:'Dívida', filhos:['Dívida - Antecipação de Recebíveis'] } },
 
-  { k:'despfin',   nome:'Despesas financeira',            sinal:-1, auto:i => resSubDe('Corporativo', ['Despesas Financeiras'], i) },
-  { k:'destravag', nome:'Destrava Gerencial',             sinal:+1, auto:i => resTravaDia(i,'ger','destrava') },
+  { k:'despfin',   nome:'Despesas financeira',            sinal:-1,
+    src:{ cat:'Corporativo', filhos:['Despesas Financeiras'] } },
+  { k:'destravag', nome:'Destrava Gerencial',             sinal:+1, auto:i => resTravaDia(i,'ger','destrava'),
+    fonte:'destravas gerenciais lançadas à mão' },
 
   { k:'gDes',      nome:'Desembolsos - Fornecedores e Outro', tipo:'grupo', sinal:-1 },
-  { k:'cap',       nome:'CAP - Diário',              pai:'gDes', sinal:-1, auto:i => resPorNome(
-        ['Fornecedores - Opex','Fornec. Opex Represados','Fornecedores - Capex','Fornec. Capex Represados'],'S',i) },
-  { k:'cambio',    nome:'Câmbio',                    pai:'gDes', sinal:-1, auto:i => resPorNome(['Câmbio Opex','Câmbio Capex'],'S',i) },
-  { k:'comex',     nome:'Comex',                     pai:'gDes', sinal:-1, auto:i => resSubDe('Corporativo', ['Siscomex'], i) },
-  { k:'imposto',   nome:'Imposto',                   pai:'gDes', sinal:-1, auto:i => resPorNome(['Impostos'],'S',i) },
-  { k:'akofsSai',  nome:'Akofs/Way/HLB',             pai:'gDes', sinal:-1, auto:() => 0, manualOnly:true },
-  { k:'outrassai', nome:'Outras saídas',             pai:'gDes', sinal:-1, auto:i => resOutrasSai(i) },
+  { k:'cap',       nome:'CAP - Diário',              pai:'gDes', sinal:-1,
+    src:{ raiz:'S', nomes:['Fornecedores - Opex','Fornec. Opex Represados','Fornecedores - Capex','Fornec. Capex Represados'] } },
+  { k:'cambio',    nome:'Câmbio',                    pai:'gDes', sinal:-1,
+    src:{ raiz:'S', nomes:['Câmbio Opex','Câmbio Capex'] } },
+  { k:'comex',     nome:'Comex',                     pai:'gDes', sinal:-1,
+    src:{ cat:'Corporativo', filhos:['Siscomex'] } },
+  { k:'imposto',   nome:'Imposto',                   pai:'gDes', sinal:-1, src:{ raiz:'S', nomes:['Impostos'] } },
+  { k:'akofsSai',  nome:'Akofs/Way/HLB',             pai:'gDes', sinal:-1, auto:() => 0, manualOnly:true,
+    fonte:'sem ligação definida — preenchimento à mão' },
+  { k:'outrassai', nome:'Outras saídas',             pai:'gDes', sinal:-1, auto:i => resOutrasSai(i),
+    fonte:'o que sobra de Outras Saídas e de Corporativo, fora mútuo e adiantamento entre grupos' },
 
-  { k:'ajuste',    nome:'Ajuste',                         sinal:+1, auto:() => 0, manualOnly:true },
+  { k:'ajuste',    nome:'Ajuste',                         sinal:+1, auto:() => 0, manualOnly:true,
+    fonte:'preenchimento à mão' },
 ];
+/* uma linha sem closure própria soma o que a fonte declarada encontrou */
+RES_LINHAS.forEach(L => { if (!L.auto && L.src) L.auto = i => resAuto(i, L); });
 /* Quadro separado no rodapé: os blocos de conta especial do ECO, do grupo ativo.
    São saldos, não movimento, e não entram no total do dia.                      */
 function resEspeciais(){
@@ -3881,6 +3966,61 @@ function resCalcula(i){
     if (L.sinal > 0) ent += v; else sai += v;
   });
   return { siAuto, siMan, margem, si, ent, sai, total: si + ent - sai };
+}
+
+/* Conferência da ligação entre o resumo e o ECO: o que cada linha encontrou,
+   quanto isso dá no mês, e o que ela procurou sem achar.                    */
+function renderResumoFonte(i){
+  const m = MONTHS[MOF[i]], i0 = m.idx[0], i1 = m.idx[m.idx.length-1];
+  let mudas = 0, semLigacao = 0;
+  let h = `<thead><tr><th>Linha do resumo</th><th>Linhas do ECO que ela encontrou</th>
+    <th class="n">${mBR(m.key)}</th><th>Situação</th></tr></thead><tbody>`;
+
+  RES_LINHAS.forEach(L => {
+    if (L.tipo === 'grupo'){
+      h += `<tr class="tot"><td colspan="4">${esc(L.nome)}</td></tr>`;
+      return;
+    }
+    let soma = 0; for (let k = i0; k <= i1; k++) soma += resValor(k, L).auto;
+    let achou = '', falta = [], estado;
+    if (L.src){
+      const r = resNosDe(L.src);
+      falta = r.faltando;
+      const nomes = [...new Set(r.achados.map(id => NODE[id].nome))];
+      achou = nomes.join(' + ') || '—';
+      estado = !r.achados.length ? 'nada' : (falta.length ? 'parcial' : 'ok');
+    } else {
+      achou = L.fonte || '—';
+      estado = L.manualOnly ? 'manual' : 'ok';
+    }
+    if (estado === 'nada'){ semLigacao++; }
+    else if (estado === 'ok' && Math.abs(soma) < .5) mudas++;
+
+    h += `<tr><td style="padding-left:${L.pai ? 32 : 14}px">${esc(L.nome)}</td>
+      <td style="font-size:12px" class="${estado==='nada'?'neg':'mut'}">${esc(achou)}${
+        falta.length ? `<div class="neg" style="font-size:11px">não achou: ${esc(falta.join(', '))}</div>` : ''}</td>
+      <td class="n ${Math.abs(soma)<.5?'mut':''}">${Math.abs(soma)<.5 ? '—' : fMil(soma * L.sinal)}</td>
+      <td>${estado==='nada' ? '<span class="bdg risk">não achou no ECO</span>'
+          : estado==='parcial' ? '<span class="bdg at">achou em parte</span>'
+          : estado==='manual' ? '<span class="bdg at">à mão</span>'
+          : Math.abs(soma)<.5 ? '<span class="bdg r">ligada, sem valor no mês</span>'
+          : '<span class="bdg ok">ligada</span>'}</td></tr>`;
+  });
+
+  /* o quadro das contas especiais também passa pela conferência */
+  resEspeciais().forEach(E => {
+    const v = E.serie[i1] || 0;
+    h += `<tr><td style="padding-left:32px">${esc(E.nome)} <span class="mut">(conta especial)</span></td>
+      <td style="font-size:12px" class="mut">bloco do ECO, saldo do dia</td>
+      <td class="n ${Math.abs(v)<.5?'mut':''}">${Math.abs(v)<.5 ? '—' : fMil(v)}</td>
+      <td><span class="bdg ok">ligada</span></td></tr>`;
+  });
+
+  $('rsFonte').innerHTML = h + '</tbody>';
+  $('rsFonteN').title = 'versão da página: ' + VERSAO;
+  $('rsFonteN').innerHTML = semLigacao
+    ? `<b class="neg">${semLigacao} linha(s) não acharam a origem no ECO</b>`
+    : `todas ligadas · ${mudas} sem valor em ${mBR(m.key)}`;
 }
 
 /* ---------- interface ---------- */
@@ -3985,6 +4125,8 @@ function renderResumo(){
     RES.aberto.has(k) ? RES.aberto.delete(k) : RES.aberto.add(k);
     renderResumo(); });
 
+  renderResumoFonte(i);
+
   const salvos = Object.values(S.resumos || {}).sort((a,b) => (b.dt||'').localeCompare(a.dt||''));
   $('rsHistN').textContent = salvos.length ? `${salvos.length} salvo(s)` : 'nenhum salvo';
   $('rsHist').innerHTML = salvos.length
@@ -4036,6 +4178,11 @@ function resEditar(i, fn){
   renderResumo();
 }
 function resEventos(){
+  $('rsFonteTgl').onclick = () => {
+    const w = $('rsFonteWrap'), aberto = w.style.display !== 'none';
+    w.style.display = aberto ? 'none' : '';
+    $('rsFonteTgl').textContent = aberto ? 'Mostrar' : 'Esconder';
+  };
   $('rsData').onchange = () => {
     const v = $('rsData').value;
     if (DIDX[v] !== undefined) RES.dia = DIDX[v];
