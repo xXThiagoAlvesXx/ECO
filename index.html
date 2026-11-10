@@ -325,7 +325,8 @@ body[data-modo="escuro"]{--cal-filter:invert(1) brightness(1.6)}
 .seg button:hover{color:var(--ink)}
 .seg button.on{background:var(--green);color:var(--on-fg);font-weight:600}
 .chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;border-radius:999px;
-  padding:7px 13px;background:var(--field-bg);border:1px solid var(--line);cursor:pointer}
+  padding:7px 13px;background:var(--field-bg);border:1px solid var(--line);cursor:pointer;white-space:nowrap}
+.chk[hidden]{display:none}
 .chk input{margin:0;accent-color:var(--green)}
 .chk.off{opacity:.42}
 
@@ -483,15 +484,15 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
 
 <nav class="tabs" id="nav">
   <button data-p="res" class="on dest">Resumo diário</button>
-  <button data-p="semana">Semana</button>
   <button data-p="dia">Dia</button>
-  <button data-p="exec">Painel executivo</button>
-  <button data-p="cmp">Comparativo</button>
+  <button data-p="semana">Semana</button>
   <button data-p="mes">Mês</button>
-  <button data-p="lanc">Lançamentos</button>
+  <button data-p="exec">Painel executivo</button>
   <button data-p="rec">Análise de receitas</button>
   <button data-p="sai">Análise de saídas</button>
+  <button data-p="cmp">Comparativo</button>
   <button data-p="trv">Travas bancárias</button>
+  <button data-p="lanc">Lançamentos</button>
   <!-- Simulação segue no código, inteira, mas fora da barra: a Tesouraria não está usando.
        Para reativar, basta devolver o botão abaixo à navegação.
   <button data-p="sim">Simulação</button> -->
@@ -514,7 +515,10 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
       <div class="row">
         <label class="chk" id="chkEkoL"><input type="checkbox" id="chkEko" checked> EKO</label>
         <label class="chk" id="chkManL"><input type="checkbox" id="chkMan" checked> Manual</label>
-        <label class="chk" id="chkSimL"><input type="checkbox" id="chkSim"> Simulação</label>
+        <label class="chk" id="chkMovL" title="O que você digita no Resumo diário passa a contar no saldo, nas entradas e nas saídas de todas as abas. Desmarque para ver só o EKO."><input type="checkbox" id="chkMov" checked> Mov. diário</label>
+        <!-- A simulação saiu da tela junto com a aba, mas o campo continua aqui
+             para o código dela não quebrar caso a aba volte a ser ligada. -->
+        <label class="chk" id="chkSimL" hidden><input type="checkbox" id="chkSim"> Simulação</label>
       </div>
     </div>
     <div class="fld"><label for="fLim">Alerta de saldo baixo (R$ mil)</label><input id="fLim" type="number" step="500" value="5000"></div>
@@ -994,6 +998,7 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
         <button class="tbtn sm" id="rsHoje">Hoje</button>
         <span class="sp"></span>
         <span id="rsIdent" style="font-size:12px"></span>
+        <span class="bdg" id="rsMov" style="display:none"></span>
         <span class="bdg sim" id="rsVivo" title="O resumo é compartilhado: o que você digita aparece para a equipe, e o que eles mudam aparece aqui.">ao vivo</span>
       </h3>
       <div class="bd">
@@ -1008,7 +1013,9 @@ body[data-modo="escuro"] .critc.bom{background:rgba(87,206,153,.06)}
         <p class="hint" style="margin-bottom:0">Os valores em cinza vêm do ECO. Digite por cima para ajustar só este
           resumo — o fluxo, os saldos e os lançamentos originais não mudam. Campo em branco volta ao valor do ECO.
           <b>Tudo é salvo na hora e todo mundo vê a mesma tela</b>, então não existe rascunho: o que você digita já
-          vale para a equipe. A célula aceita conta: digite <b>=1200+350-80</b> ou <b>1200+350</b> e ela resolve.</p>
+          vale para a equipe. A célula aceita conta: digite <b>=1200+350-80</b> ou <b>1200+350</b> e ela resolve.
+          O que for digitado aqui também <b>entra no saldo de Dia, Semana, Mês e do Painel executivo</b> — para ver o
+          EKO puro, desmarque <b>Mov. diário</b> na barra de filtros.</p>
       </div>
     </div>
 
@@ -1182,7 +1189,7 @@ const GRUPOS = { BVT: 'Bravante', MAR: 'Marlin' };
 /* Carimbo desta versão do arquivo. Serve para saber, olhando a tela, se o
    index.html publicado é o mais recente — a base fica no Supabase, mas o
    código vem do arquivo, e os dois se atualizam por caminhos diferentes. */
-const VERSAO = '2026-11-10 13h20';
+const VERSAO = '2026-11-10 14h40';
 const isLeaf = id => !KIDS[id];
 function ser(id){
   if (SER[id]) return SER[id];
@@ -1332,7 +1339,7 @@ const S = {
   page: 'res', grp: 'BVT',
   w: 0, d: 0, m: 0, horz: 30,
   cat: '', sub: '', seg: '', tipo: '',
-  useEko: true, useMan: true, useSim: false,
+  useEko: true, useMan: true, useSim: false, useMov: true,
   lim: 5000,
   simA: null, simB: null, simGrp: 'BVT', dsvFiltro: 'todos', justif: {}, resumos: {}, cmpObs: {}, modo: 'claro',
   entries: [], notes: [], versoes: [],
@@ -1415,16 +1422,8 @@ function recompute(){
       if (i >= p.from){ tBanco[i] += (tb[i] || 0); tGer[i] += (tg[i] || 0); }
     }
   });
-  const ov = overlayTravas(gs);
-  for (let i = 0; i < N; i++){
-    tBanco[i] += ov.oB[i]; tGer[i] += ov.oG[i];
-    tra[i] = tBanco[i] + tGer[i];
-    livreBanco[i] = fim[i] - tBanco[i];
-    livre[i] = fim[i] - tra[i];
-  }
-  const bFim = new Float64Array(N);
-  gs.forEach(g => { const p = chainGroup(g, { man: false, sim: false }); for (let i=0;i<N;i++) bFim[i] += p.fim[i]; });
-  /* lançamentos amarrados a uma linha do EKO entram no próprio nó e sobem na hierarquia */
+  /* lançamentos amarrados a uma linha do EKO entram no próprio nó e sobem na
+     hierarquia. Vem antes do resumo diário porque o resumo lê essas linhas.  */
   ADJ = {};
   const gsAtivos = grupos();
   for (const e of S.entries){
@@ -1438,7 +1437,74 @@ function recompute(){
     let c = NODE[e.nid];
     while (c){ (ADJ[c.id] = ADJ[c.id] || {})[i] = ((ADJ[c.id] || {})[i] || 0) + e.val; c = NODE[c.parent]; }
   }
-  F = { ent, sai, ini, fim, livre, livreBanco, travas: tra, tBanco, tGer, bFim, per };
+
+  /* o que foi digitado no Resumo diário entra como movimento do dia */
+  const mv = movDiario();
+  let acCx = 0, acTg = 0;
+  for (let i = 0; i < N; i++){
+    ent[i] += mv.dE[i]; sai[i] += mv.dS[i];
+    ini[i] += acCx;                      /* a abertura já carrega o efeito dos dias anteriores */
+    acCx += mv.dE[i] - mv.dS[i];
+    fim[i] += acCx;
+    acTg += mv.dG[i];
+    tGer[i] += acTg;                     /* trava segura dinheiro do dia em diante */
+  }
+
+  const ov = overlayTravas(gs);
+  for (let i = 0; i < N; i++){
+    tBanco[i] += ov.oB[i]; tGer[i] += ov.oG[i];
+    tra[i] = tBanco[i] + tGer[i];
+    livreBanco[i] = fim[i] - tBanco[i];
+    livre[i] = fim[i] - tra[i];
+  }
+  /* a linha de base é o EKO puro: nem lançamento, nem simulação, nem resumo */
+  const bFim = new Float64Array(N);
+  gs.forEach(g => { const p = chainGroup(g, { man: false, sim: false }); for (let i=0;i<N;i++) bFim[i] += p.fim[i]; });
+  F = { ent, sai, ini, fim, livre, livreBanco, travas: tra, tBanco, tGer, bFim, per, mov: mv };
+}
+
+/* ====================== MOVIMENTAÇÃO DIÁRIA ======================
+   Cada célula preenchida no Resumo diário é a correção de uma linha num dia:
+   o valor digitado passa a valer no lugar do que veio do EKO. A diferença
+   entre os dois é um movimento de caixa, e é ela que entra aqui — para que
+   Dia, Semana, Mês e o Painel executivo mostrem o mesmo saldo que o resumo.
+
+   Duas exceções, por natureza das linhas:
+   · Trava e destrava gerencial não mexem no caixa, só na parte dele que está
+     presa. A diferença delas vai para a trava gerencial, e vale do dia em
+     diante, como qualquer trava.
+   · Dia já realizado não entra: ali quem manda é o EKO, e o próprio resumo
+     já ignora o que foi digitado.
+   A quebra por categoria (Análise de receitas e de saídas) continua mostrando
+   o EKO: o resumo corrige o total da linha, não diz em qual subconta caiu.  */
+function movDiario(){
+  const dE = new Float64Array(N), dS = new Float64Array(N), dG = new Float64Array(N);
+  const pronto = typeof RES_LINHAS !== 'undefined' && typeof resValor === 'function';
+  if (S.useMov === false || !pronto) return { dE, dS, dG, ligado: false, dias: 0 };
+  const rs = S.resumos || {};
+  let dias = 0;
+  for (const ch in rs){
+    const r = rs[ch];
+    if (!r || !r.linhas || ch.split('|')[0] !== S.grp) continue;
+    const i = DIDX[r.dt];
+    if (i === undefined || i <= LRI) continue;
+    let tocou = false;
+    for (const L of RES_LINHAS){
+      if (L.tipo === 'grupo') continue;
+      const cel = r.linhas[L.k];
+      if (!cel || cel.manual == null || cel.manual === '') continue;
+      const v = resValor(i, L);
+      const d = v.usado - v.auto;
+      if (!d) continue;
+      tocou = true;
+      if (L.k === 'destravag') dG[i] -= d;
+      else if (L.k === 'travag') dG[i] += d;
+      else if (L.sinal > 0) dE[i] += d;
+      else dS[i] += d;
+    }
+    if (tocou) dias++;
+  }
+  return { dE, dS, dG, ligado: true, dias };
 }
 function chainWith(includeSim){
   const fim = new Float64Array(N);
@@ -2867,7 +2933,7 @@ let saving = null;
 function save(){
   clearTimeout(saving);
   saving = setTimeout(() => { Store.set('fdc_entries', S.entries); Store.set('fdc_notes', S.notes);
-    Store.set('fdc_prefs', { lim: S.lim, useSim: S.useSim, useMan: S.useMan, useEko: S.useEko,
+    Store.set('fdc_prefs', { lim: S.lim, useSim: S.useSim, useMov: S.useMov, useMan: S.useMan, useEko: S.useEko,
       grp: S.grp, simGrp: S.simGrp, modo: S.modo });
     Store.set('fdc_versoes', S.versoes); }, 250);
 }
@@ -3051,6 +3117,7 @@ function render(){
   $('navFlag').textContent = `${D.dates.length} dias úteis · ${dBR(D.dates[0])}/${D.dates[0].slice(2,4)} a ${dBR(D.dates[N-1])}/${D.dates[N-1].slice(2,4)}`;
   $('chkEkoL').classList.toggle('off', !S.useEko);
   $('chkManL').classList.toggle('off', !S.useMan);
+  $('chkMovL').classList.toggle('off', !S.useMov);
   $('chkSimL').classList.toggle('off', !S.useSim);
   renderNotes();
   if (S.page === 'semana') renderWeek();
@@ -3129,6 +3196,7 @@ $('fReset').onclick = () => { S.cat=S.sub=S.seg=S.tipo=''; fillSel($('fCat'), AL
 $('fLim').onchange = () => { S.lim = +$('fLim').value || 0; save(); render(); };
 $('chkEko').onchange = () => { S.useEko = $('chkEko').checked; save(); render(); };
 $('chkMan').onchange = () => { S.useMan = $('chkMan').checked; save(); render(); };
+$('chkMov').onchange = () => { S.useMov = $('chkMov').checked; save(); render(); };
 $('chkSim').onchange = () => { S.useSim = $('chkSim').checked; save(); render(); };
 
 document.querySelectorAll('#grpSeg button').forEach(b => b.onclick = () => {
@@ -3212,7 +3280,7 @@ function exportarSnapshot(){
   const snap = {
     kind: 'fdc-snapshot', versao: 2, congeladoEm: new Date().toISOString(),
     meta: D.meta, grupoAtivo: S.grp,
-    prefs: { lim: S.lim, useEko: S.useEko, useMan: S.useMan, useSim: S.useSim },
+    prefs: { lim: S.lim, useEko: S.useEko, useMan: S.useMan, useSim: S.useSim, useMov: S.useMov },
     dataset: D, entries: S.entries, notes: S.notes, versoes: S.versoes
   };
   baixar(`fluxo-caixa_snapshot_${carimbo()}.json`, JSON.stringify(snap), 'application/json');
@@ -3621,7 +3689,7 @@ Versão congelada em ${new Date().toLocaleString('pt-BR')}.
   $('segList').innerHTML = SEGL.map(s => `<option value="${esc(s)}">`).join('');
   $('mSel').innerHTML = MONTHS.map(m => `<option value="${m.key}">${mBR(m.key)}</option>`).join('');
   $('lData').value = TODAY; $('sData').value = TODAY; $('oData').value = TODAY;
-  $('fLim').value = S.lim; $('chkSim').checked = S.useSim; $('chkMan').checked = S.useMan; $('chkEko').checked = S.useEko;
+  $('fLim').value = S.lim; $('chkSim').checked = S.useSim; $('chkMov').checked = S.useMov !== false; $('chkMan').checked = S.useMan; $('chkEko').checked = S.useEko;
   syncLancCats(); syncLancNos(); syncLancNatureza(); syncSimNatureza();
   Store.aoMudar(pintarSync);
   render();
@@ -4551,6 +4619,17 @@ function renderResumo(){
   $('rsData').value = ds;
   $('rsData').min = D.dates[0]; $('rsData').max = D.dates[N-1];
   $('rsMargem').value = c.margem;
+  /* quantos dias já têm movimento digitado, e se ele está contando lá fora */
+  const mv = (F && F.mov) || { dias: 0, ligado: false };
+  const selo = $('rsMov');
+  if (selo){
+    selo.style.display = mv.dias ? '' : 'none';
+    selo.className = 'bdg ' + (mv.ligado ? 'ok' : 'r');
+    selo.textContent = mv.dias
+      ? `${mv.dias} dia${mv.dias > 1 ? 's' : ''} com movimento · ${mv.ligado ? 'contando nas outras abas' : 'fora do saldo (Mov. diário desmarcado)'}`
+      : '';
+    selo.title = 'A marcação "Mov. diário", na barra de filtros, liga e desliga o efeito destes ajustes no resto do painel.';
+  }
   $('rsIdent').innerHTML = `
     <span class="bdg ${r ? (r.status === 'final' ? 'ok' : 'at') : 'r'}">${
       r ? 'com ajuste' : 'direto do ECO'}</span>
